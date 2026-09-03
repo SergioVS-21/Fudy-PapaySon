@@ -1,1 +1,79 @@
-/* You can add global styles to this file, and also import other style files */
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap');
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	min-height: 100%;
+}
+
+body {
+	font-family: 'Sora', sans-serif;
+	color: #2e2b28;
+}
+
+.orders-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+	gap: 1rem;
+	align-items: start;
+}
+
+.catalog-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 0.75rem;
+	margin-top: 0.8rem;
+}
+
+.product-tile {
+	border: 1px solid #e2e7ff;
+	border-radius: 0.9rem;
+	padding: 0.8rem;
+	background: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%);
+	cursor: pointer;
+	display: grid;
+	gap: 0.2rem;
+	min-height: 120px;
+	align-content: start;
+}
+
+.product-tile strong {
+	display: block;
+	color: #343d61;
+}
+
+.tile-meta {
+	margin-top: 0.4rem;
+	display: flex;
+	justify-content: space-between;
+	font-size: 0.78rem;
+	color: #7680a4;
+}
+
+.line-item {
+	background: #f8faff;
+	padding: 0.5rem;
+	border-radius: 0.75rem;
+}
+
+@media (max-width: 900px) {
+	.orders-layout {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (max-width: 640px) {
+	.catalog-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.product-tile {
+		min-height: auto;
+	}
+}

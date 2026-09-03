@@ -42,3 +42,21 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Environment variables
+.env
+
+# Firebase & Secret Keys
+.firebase/
+service-account*.json
+*.pem
+
+# Python & Printer Bridge
+__pycache__/
+*.pyc
+.venv*/
+printer_bridge/build/
+printer_bridge/dist/
+printer_bridge/PrinterBridge.spec
+printer_bridge/service-account.json
+
