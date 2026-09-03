@@ -233,10 +233,16 @@ interface PaymentReceiptSnapshot {
                     } @else if (dataError() && !activeViews().length) {
                       <article class="state-card cashier-floor-state-card">
                         <strong>{{ dataError() }}</strong>
-                        <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                          Recargar
-                        </button>
+                        <div class="state-actions-row">
+                          <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                            Reintentar
+                          </button>
+                          <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                            <i class="bi bi-x-circle" aria-hidden="true"></i>
+                            Cancelar
+                          </button>
+                        </div>
                       </article>
                     }
 
@@ -288,10 +294,16 @@ interface PaymentReceiptSnapshot {
                 } @else if (dataError() && !activeViews().length) {
                   <article class="state-card">
                     <strong>{{ dataError() }}</strong>
-                    <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                      <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                      Recargar
-                    </button>
+                    <div class="state-actions-row">
+                      <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                        Reintentar
+                      </button>
+                      <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                        <i class="bi bi-x-circle" aria-hidden="true"></i>
+                        Cancelar
+                      </button>
+                    </div>
                   </article>
                 } @else {
                 @for (view of activeViews(); track view.key) {
@@ -341,10 +353,16 @@ interface PaymentReceiptSnapshot {
                 } @else if (dataError() && !historyViews().length) {
                   <li class="state-card">
                     <strong>{{ dataError() }}</strong>
-                    <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                      <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                      Recargar
-                    </button>
+                    <div class="state-actions-row">
+                      <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                        Reintentar
+                      </button>
+                      <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                        <i class="bi bi-x-circle" aria-hidden="true"></i>
+                        Cancelar
+                      </button>
+                    </div>
                   </li>
                 } @else {
                 @for (view of historyViews(); track view.localId + view.order.id) {
@@ -2212,6 +2230,10 @@ export class DashboardPageComponent {
 
   retryLoad(): void {
     void this.state.retryRuntimeDataLoad();
+  }
+
+  cancelLoad(): void {
+    this.state.clearRuntimeDataError();
   }
 
   refreshBcvRate(): void {

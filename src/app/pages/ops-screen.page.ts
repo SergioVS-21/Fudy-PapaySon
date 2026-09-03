@@ -96,10 +96,16 @@ interface AreaSection {
                   } @else if (dataError() && !allAreaOrders().length) {
                     <article class="state-card">
                       <strong>{{ dataError() }}</strong>
-                      <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                        Recargar
-                      </button>
+                      <div class="state-actions-row">
+                        <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                          Reintentar
+                        </button>
+                        <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                          <i class="bi bi-x-circle" aria-hidden="true"></i>
+                          Cancelar
+                        </button>
+                      </div>
                     </article>
                   } @else {
                   @for (order of allAreaOrders(); track order.id) {
@@ -205,10 +211,16 @@ interface AreaSection {
                     } @else if (dataError() && !section.orders.length) {
                       <article class="state-card">
                         <strong>{{ dataError() }}</strong>
-                        <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                          Recargar
-                        </button>
+                        <div class="state-actions-row">
+                          <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                            Reintentar
+                          </button>
+                          <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                            <i class="bi bi-x-circle" aria-hidden="true"></i>
+                            Cancelar
+                          </button>
+                        </div>
                       </article>
                     } @else {
                     @for (order of section.orders; track order.id) {
@@ -1501,6 +1513,10 @@ export class OpsScreenPageComponent {
 
   retryLoad(): void {
     void this.state.retryRuntimeDataLoad();
+  }
+
+  cancelLoad(): void {
+    this.state.clearRuntimeDataError();
   }
 
   complete(orderId: string): void {

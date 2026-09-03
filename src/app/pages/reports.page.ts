@@ -262,10 +262,16 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
           } @else if (dataError() && !sortedReportOrders().length) {
             <article class="state-card">
               <strong>{{ dataError() }}</strong>
-              <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                Recargar
-              </button>
+              <div class="state-actions-row">
+                <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                  <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                  Reintentar
+                </button>
+                <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                  <i class="bi bi-x-circle" aria-hidden="true"></i>
+                  Cancelar
+                </button>
+              </div>
             </article>
           } @else if (sortedReportOrders().length) {
             <div style="overflow-x: auto;">
@@ -1627,6 +1633,10 @@ export class ReportsPageComponent {
 
   retryLoad(): void {
     void this.state.retryRuntimeDataLoad();
+  }
+
+  cancelLoad(): void {
+    this.state.clearRuntimeDataError();
   }
 
   periodLabel(): string {

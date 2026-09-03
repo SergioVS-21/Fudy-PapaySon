@@ -24,9 +24,18 @@
       <div>
         <strong>{{ syncOverlayStatus() === 'uploading' ? 'Subiendo informacion' : syncOverlayStatus() === 'completed' ? 'Completado' : 'Error de red' }}</strong>
         <p>{{ syncOverlayMessage() }}</p>
-        @if (syncOverlayCanRetry()) {
-        <button type="button" class="sync-retry-btn" (click)="retrySyncOperation()">Reintentar</button>
-        }
+        <div class="sync-actions">
+          @if (syncOverlayCanRetry() || syncOverlayStatus() === 'error') {
+            <button type="button" class="sync-retry-btn" (click)="retrySyncOperation()">
+              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Reintentar
+            </button>
+          }
+          @if (syncOverlayStatus() === 'error' || syncOverlayStatus() === 'uploading') {
+            <button type="button" class="sync-cancel-btn" (click)="cancelSyncOperation()">
+              <i class="bi bi-x-circle" aria-hidden="true"></i> Cancelar
+            </button>
+          }
+        </div>
       </div>
     </article>
   </div>

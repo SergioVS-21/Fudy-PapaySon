@@ -129,10 +129,16 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
           } @else if (dataError() && !visibleOrders().length) {
             <article class="state-card">
               <strong>{{ dataError() }}</strong>
-              <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                Recargar
-              </button>
+              <div class="state-actions-row">
+                <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                  <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                  Reintentar
+                </button>
+                <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                  <i class="bi bi-x-circle" aria-hidden="true"></i>
+                  Cancelar
+                </button>
+              </div>
             </article>
           } @else {
           @for (order of visibleOrders(); track order.id) {
@@ -230,10 +236,16 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
               } @else if (dataError() && !groupedAccountOrders().length) {
                 <li class="state-card">
                   <strong>{{ dataError() }}</strong>
-                  <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                    Recargar
-                  </button>
+                  <div class="state-actions-row">
+                    <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                      <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                      Reintentar
+                    </button>
+                    <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                      <i class="bi bi-x-circle" aria-hidden="true"></i>
+                      Cancelar
+                    </button>
+                  </div>
                 </li>
               } @else {
               @for (order of groupedAccountOrders(); track order.id) {
@@ -3834,6 +3846,10 @@ export class OrdersPageComponent {
 
   retryLoad(): void {
     void this.state.retryRuntimeDataLoad();
+  }
+
+  cancelLoad(): void {
+    this.state.clearRuntimeDataError();
   }
 
   canContinueFromStep2(): boolean {

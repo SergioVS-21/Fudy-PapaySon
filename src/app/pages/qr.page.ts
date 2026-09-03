@@ -38,10 +38,16 @@ import { RestaurantId } from '../core/models';
         } @else if (dataError() && !menuProducts().length) {
           <article class="state-card">
             <strong>{{ dataError() }}</strong>
-            <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-              Recargar
-            </button>
+            <div class="state-actions-row">
+              <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                Reintentar
+              </button>
+              <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                <i class="bi bi-x-circle" aria-hidden="true"></i>
+                Cancelar
+              </button>
+            </div>
           </article>
         } @else {
           <ul class="list">
@@ -121,6 +127,10 @@ export class QrPageComponent {
 
   retryLoad(): void {
     void this.state.retryRuntimeDataLoad();
+  }
+
+  cancelLoad(): void {
+    this.state.clearRuntimeDataError();
   }
 
   async checkout(): Promise<void> {

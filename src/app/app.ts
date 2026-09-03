@@ -63,6 +63,10 @@ export class App {
     this.state.retrySyncOperation();
   }
 
+  cancelSyncOperation(): void {
+    this.state.cancelSyncOperation();
+  }
+
   toggleSidebar(): void {
     this.isSidebarOpen.update((value) => !value);
   }

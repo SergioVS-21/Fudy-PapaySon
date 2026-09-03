@@ -245,13 +245,33 @@ export class AppStateService {
 
   retrySyncOperation(): void {
     const operation = this.syncOverlayRetryOperation;
+    this.syncOverlayRetryOperation = null;
+    this.syncOverlayCanRetry.set(false);
+
     if (!operation) {
+      void this.retryRuntimeDataLoad();
       return;
     }
 
-    this.syncOverlayRetryOperation = null;
-    this.syncOverlayCanRetry.set(false);
     this.trackSyncOperation(operation, 'Sincronizacion completada', 'No se pudo completar la carga');
+  }
+
+  cancelSyncOperation(): void {
+    if (this.syncOverlayTimeoutId) {
+      clearTimeout(this.syncOverlayTimeoutId);
+      this.syncOverlayTimeoutId = null;
+    }
+    this.pendingSyncOperations = 0;
+    this.syncOverlayVisible.set(false);
+    this.syncOverlayStatus.set('idle');
+    this.syncOverlayMessage.set('');
+    this.syncOverlayCanRetry.set(false);
+    this.syncOverlayRetryOperation = null;
+  }
+
+  clearRuntimeDataError(): void {
+    this.runtimeDataError.set('');
+    this.runtimeDataLoading.set(false);
   }
 
   queueConsumptionPrintJob(input: ConsumptionPrintJobInput): void {
@@ -551,7 +571,8 @@ export class AppStateService {
       this.syncOverlayVisible.set(true);
       this.syncOverlayStatus.set('error');
       this.syncOverlayMessage.set(errorMessage);
-      this.syncOverlayCanRetry.set(false);
+      this.syncOverlayCanRetry.set(true);
+      this.syncOverlayRetryOperation = () => this.retryRuntimeDataLoad();
       return null;
     }
 
@@ -1830,14 +1851,20 @@ export class AppStateService {
     }
 
     try {
-      await authUser.getIdToken(true);
+      await authUser.getIdToken(false);
       this.lastAuthValidationAt = Date.now();
       return true;
-    } catch {
-      this.currentUser.set(null);
-      this.clearSession();
-      void firebaseSignOut(authDb).catch(() => undefined);
-      return false;
+    } catch (error: any) {
+      if (error?.code === 'auth/network-request-failed' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+        return true;
+      }
+      if (error?.code === 'auth/user-disabled' || error?.code === 'auth/user-not-found') {
+        this.currentUser.set(null);
+        this.clearSession();
+        void firebaseSignOut(authDb).catch(() => undefined);
+        return false;
+      }
+      return true;
     }
   }
 
@@ -2615,7 +2642,8 @@ export class AppStateService {
     this.syncOverlayVisible.set(true);
     this.syncOverlayStatus.set(status);
     this.syncOverlayMessage.set(message);
-    if (status === 'error' && this.syncOverlayCanRetry()) {
+    if (status === 'error') {
+      this.syncOverlayCanRetry.set(true);
       return;
     }
 

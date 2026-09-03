@@ -1,7 +1,13 @@
 import { FirebaseApp, getApp, getApps, initializeApp } from 'firebase/app';
 import { Analytics, getAnalytics, isSupported } from 'firebase/analytics';
 import { Auth, getAuth } from 'firebase/auth';
-import { Firestore, getFirestore } from 'firebase/firestore';
+import {
+  Firestore,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
+} from 'firebase/firestore';
 import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 function getEnvVal(key: string, fallback: string): string {
@@ -30,7 +36,17 @@ export const firebaseApp: FirebaseApp = getApps().length
   ? getApp()
   : initializeApp(firebaseConfig);
 
-export const firestoreDb: Firestore = getFirestore(firebaseApp);
+export const firestoreDb: Firestore = (() => {
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    });
+  } catch {
+    return getFirestore(firebaseApp);
+  }
+})();
 export const storageDb: FirebaseStorage = getStorage(firebaseApp);
 export const authDb: Auth = getAuth(firebaseApp);
 
