@@ -39,6 +39,12 @@ export const routes: Routes = [
 		data: { module: 'reportes' } 
 	},
 	{ 
+		path: 'auditoria', 
+		loadComponent: () => import('./pages/audit.page').then(m => m.AuditPageComponent), 
+		canActivate: [moduleGuard], 
+		data: { module: 'auditoria' } 
+	},
+	{ 
 		path: 'qr', 
 		loadComponent: () => import('./pages/qr.page').then(m => m.QrPageComponent), 
 		canActivate: [moduleGuard], 

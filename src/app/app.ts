@@ -36,6 +36,7 @@ export class App {
   readonly canAccessOperacion = computed(() => this.state.canAccessModule('operacion'));
   readonly canAccessInventario = computed(() => this.state.canAccessModule('inventario'));
   readonly canAccessReportes = computed(() => this.state.canAccessModule('reportes'));
+  readonly canAccessAuditoria = computed(() => this.state.canAccessModule('auditoria'));
   readonly syncOverlayVisible = computed(() => this.state.syncOverlayVisible());
   readonly syncOverlayStatus = computed(() => this.state.syncOverlayStatus());
   readonly syncOverlayMessage = computed(() => this.state.syncOverlayMessage());

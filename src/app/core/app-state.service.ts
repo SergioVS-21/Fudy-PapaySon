@@ -377,7 +377,7 @@ export class AppStateService {
     void firebaseSignOut(authDb).catch(() => undefined);
   }
 
-  canAccessModule(module: 'dashboard' | 'comandas' | 'operacion' | 'inventario' | 'reportes' | 'qr'): boolean {
+  canAccessModule(module: 'dashboard' | 'comandas' | 'operacion' | 'inventario' | 'reportes' | 'auditoria' | 'qr'): boolean {
     const role = this.currentUserRole();
     if (!role) {
       return module === 'qr';

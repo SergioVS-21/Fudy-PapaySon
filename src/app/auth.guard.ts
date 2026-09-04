@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AppStateService } from './core/app-state.service';
 
-type AppModuleRoute = 'dashboard' | 'comandas' | 'operacion' | 'inventario' | 'reportes' | 'qr';
+type AppModuleRoute = 'dashboard' | 'comandas' | 'operacion' | 'inventario' | 'reportes' | 'auditoria' | 'qr';
 
 function firstAllowedRoute(state: AppStateService): string {
   if (state.canAccessModule('dashboard')) {
