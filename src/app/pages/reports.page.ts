@@ -2,7 +2,7 @@ import { CommonModule, CurrencyPipe, DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppStateService } from '../core/app-state.service';
-import { Order, PaymentMethod, RestaurantId } from '../core/models';
+import { Order, OrderStatus, PaymentMethod, RestaurantId } from '../core/models';
 import { formatTableNumberLabel } from '../core/table-layouts';
 
 interface ProductSales {
@@ -373,6 +373,327 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
             <p class="empty-state">No hay comandas cobradas en el periodo seleccionado.</p>
           }
         </article>
+
+        <!-- PANEL DE AUDITORIA GENERAL DE COMANDAS -->
+        <article class="panel audit-section-panel">
+          <div class="audit-header">
+            <div class="audit-header-titles">
+              <span class="audit-header-icon"><i class="bi bi-shield-check" aria-hidden="true"></i></span>
+              <div>
+                <h2 class="audit-title">Panel de Auditoría de Comandas</h2>
+                <p class="audit-subtitle">Auditoría global de todas las órdenes, estados de preparación, canales y trazabilidad de cobro</p>
+              </div>
+            </div>
+
+            <!-- Métricas KPI Rápidas -->
+            <div class="audit-kpis">
+              <div class="audit-kpi-chip">
+                <span class="kpi-label">Total</span>
+                <strong class="kpi-val">{{ auditCounts().total }}</strong>
+              </div>
+              <div class="audit-kpi-chip chip-cobrado">
+                <span class="kpi-label">Cobradas</span>
+                <strong class="kpi-val">{{ auditCounts().cobradas }}</strong>
+              </div>
+              <div class="audit-kpi-chip chip-proceso">
+                <span class="kpi-label">En Proceso</span>
+                <strong class="kpi-val">{{ auditCounts().enProceso }}</strong>
+              </div>
+              <div class="audit-kpi-chip chip-pendiente">
+                <span class="kpi-label">Pendientes</span>
+                <strong class="kpi-val">{{ auditCounts().pendientes }}</strong>
+              </div>
+              <div class="audit-kpi-chip chip-anulado">
+                <span class="kpi-label">Anuladas</span>
+                <strong class="kpi-val">{{ auditCounts().anuladas }}</strong>
+              </div>
+              <div class="audit-kpi-chip chip-total">
+                <span class="kpi-label">Total Auditado</span>
+                <strong class="kpi-val">\${{ auditCounts().totalMonto | number:'1.2-2' }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra de Búsqueda y Filtros de Clasificación -->
+          <div class="audit-controls-bar">
+            <div class="audit-search-box">
+              <i class="bi bi-search search-icon" aria-hidden="true"></i>
+              <input
+                type="text"
+                [ngModel]="auditSearchQuery()"
+                (ngModelChange)="onAuditSearchChange($event)"
+                placeholder="Buscar por # comanda, cliente, mesa, producto, mesonero, referencia..."
+                class="audit-search-input"
+              />
+              @if (auditSearchQuery()) {
+                <button type="button" class="search-clear-btn" (click)="onAuditSearchChange('')" title="Limpiar búsqueda">
+                  <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+                </button>
+              }
+            </div>
+
+            <div class="audit-filter-dropdowns">
+              <!-- Clasificador por Local -->
+              <label class="audit-select-label">
+                <span>Local</span>
+                <select [ngModel]="auditRestaurantFilter()" (ngModelChange)="setAuditRestaurantFilter($event)">
+                  @if (canSelectAllRestaurants()) {
+                    <option value="ALL">Todos los locales</option>
+                  }
+                  @for (local of localKeys(); track local) {
+                    <option [value]="local">{{ localLabel(local) }}</option>
+                  }
+                </select>
+              </label>
+
+              <!-- Clasificador por Origen / Canal -->
+              <label class="audit-select-label">
+                <span>Origen</span>
+                <select [ngModel]="auditSourceFilter()" (ngModelChange)="setAuditSourceFilter($event)">
+                  <option value="ALL">Todos los orígenes</option>
+                  <option value="MESONERO">Mesonero</option>
+                  <option value="QR">Código QR</option>
+                </select>
+              </label>
+
+              <!-- Clasificador por Método de Pago -->
+              <label class="audit-select-label">
+                <span>Método Pago</span>
+                <select [ngModel]="auditPaymentFilter()" (ngModelChange)="setAuditPaymentFilter($event)">
+                  <option value="ALL">Todos los métodos</option>
+                  <option value="EFECTIVO">Efectivo</option>
+                  <option value="PAGO_MOVIL">Pago Móvil</option>
+                  <option value="TRANSFERENCIA">Transferencia</option>
+                  <option value="TARJETA">Tarjeta / Punto</option>
+                  <option value="OTRO">Otro</option>
+                  <option value="SIN_REGISTRO">Sin Registro</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Clasificación por Estado (Chips interactivos) -->
+          <div class="audit-status-chips">
+            <span class="chips-title"><i class="bi bi-funnel-fill" aria-hidden="true"></i> Clasificar por Estado:</span>
+            <button
+              type="button"
+              class="status-chip"
+              [class.active]="auditStatusFilter() === 'ALL'"
+              (click)="setAuditStatus('ALL')"
+            >
+              Todas ({{ auditCounts().total }})
+            </button>
+            <button
+              type="button"
+              class="status-chip chip-cobrado"
+              [class.active]="auditStatusFilter() === 'COBRADO'"
+              (click)="setAuditStatus('COBRADO')"
+            >
+              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Cobradas ({{ auditCounts().cobradas }})
+            </button>
+            <button
+              type="button"
+              class="status-chip chip-entregado"
+              [class.active]="auditStatusFilter() === 'ENTREGADO'"
+              (click)="setAuditStatus('ENTREGADO')"
+            >
+              <i class="bi bi-bag-check-fill" aria-hidden="true"></i> Entregadas ({{ auditCounts().entregadas }})
+            </button>
+            <button
+              type="button"
+              class="status-chip chip-proceso"
+              [class.active]="auditStatusFilter() === 'EN_PROCESO'"
+              (click)="setAuditStatus('EN_PROCESO')"
+            >
+              <i class="bi bi-clock-history" aria-hidden="true"></i> En Preparación ({{ auditCounts().enProceso }})
+            </button>
+            <button
+              type="button"
+              class="status-chip chip-pendiente"
+              [class.active]="auditStatusFilter() === 'PENDIENTE'"
+              (click)="setAuditStatus('PENDIENTE')"
+            >
+              <i class="bi bi-hourglass-split" aria-hidden="true"></i> Pendientes ({{ auditCounts().pendientes }})
+            </button>
+            <button
+              type="button"
+              class="status-chip chip-anulado"
+              [class.active]="auditStatusFilter() === 'ANULADO'"
+              (click)="setAuditStatus('ANULADO')"
+            >
+              <i class="bi bi-x-octagon-fill" aria-hidden="true"></i> Anuladas ({{ auditCounts().anuladas }})
+            </button>
+          </div>
+
+          <!-- Tabla de Auditoría Ordenable -->
+          @if (isDataLoading() && !allAuditOrders().length) {
+            <div class="state-card" style="margin: 1.5rem 0;">
+              <span class="state-spinner" aria-hidden="true"></span>
+              <strong>Cargando registro de auditoría...</strong>
+            </div>
+          } @else if (sortedAuditOrders().length) {
+            <div class="audit-table-wrapper">
+              <table class="audit-table">
+                <thead>
+                  <tr>
+                    <th (click)="toggleAuditSort('id')" class="sortable-th" title="Ordenar por # Comanda">
+                      <div class="th-content">
+                        <span># Comanda</span>
+                        <i [class]="auditSortColumn() === 'id' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th (click)="toggleAuditSort('createdAt')" class="sortable-th" title="Ordenar por Fecha y Hora">
+                      <div class="th-content">
+                        <span>Fecha y Hora</span>
+                        <i [class]="auditSortColumn() === 'createdAt' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th (click)="toggleAuditSort('table')" class="sortable-th" title="Ordenar por Mesa">
+                      <div class="th-content">
+                        <span>Mesa</span>
+                        <i [class]="auditSortColumn() === 'table' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th (click)="toggleAuditSort('client')" class="sortable-th" title="Ordenar por Cliente">
+                      <div class="th-content">
+                        <span>Cliente</span>
+                        <i [class]="auditSortColumn() === 'client' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th>Local(es)</th>
+                    <th>Origen / Creado por</th>
+                    <th (click)="toggleAuditSort('status')" class="sortable-th" title="Ordenar por Estado">
+                      <div class="th-content">
+                        <span>Estado</span>
+                        <i [class]="auditSortColumn() === 'status' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th (click)="toggleAuditSort('total')" class="sortable-th text-right" title="Ordenar por Total">
+                      <div class="th-content text-right">
+                        <span>Total ($)</span>
+                        <i [class]="auditSortColumn() === 'total' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
+                      </div>
+                    </th>
+                    <th class="text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (order of paginatedAuditOrders(); track order.id) {
+                    <tr class="audit-row" (click)="openAuditDetailModal(order)">
+                      <td>
+                        <span class="audit-order-id">{{ order.id }}</span>
+                      </td>
+                      <td class="audit-date-cell">
+                        <strong>{{ order.createdAt | date:'dd/MM/yyyy' }}</strong>
+                        <small>{{ order.createdAt | date:'hh:mm a' }}</small>
+                      </td>
+                      <td>
+                        <span class="audit-table-badge">Mesa {{ tableLabel(order) }}</span>
+                      </td>
+                      <td>
+                        <div class="audit-client-cell">
+                          <strong>{{ order.clientName || 'Sin nombre' }}</strong>
+                          @if (order.clientDocumentId) {
+                            <small>CI: {{ order.clientDocumentId }}</small>
+                          }
+                        </div>
+                      </td>
+                      <td>
+                        <div class="audit-locals-cell">
+                          @for (local of orderRestaurants(order); track local) {
+                            <span class="audit-local-tag">{{ localLabel(local) }}</span>
+                          }
+                        </div>
+                      </td>
+                      <td>
+                        <div class="audit-creator-cell">
+                          <span class="audit-source-badge" [class.source-qr]="order.source === 'QR'">
+                            <i [class]="order.source === 'QR' ? 'bi bi-qr-code' : 'bi bi-person-badge'" aria-hidden="true"></i>
+                            {{ order.source === 'QR' ? 'QR' : 'Mesonero' }}
+                          </span>
+                          <small>{{ getUserDisplayName(order.createdByUserId) }}</small>
+                        </div>
+                      </td>
+                      <td>
+                        <span class="audit-status-badge" [style.background]="auditStatusBadgeStyle(order.status).bg" [style.color]="auditStatusBadgeStyle(order.status).color" [style.border-color]="auditStatusBadgeStyle(order.status).border">
+                          {{ auditStatusLabel(order.status) }}
+                        </span>
+                      </td>
+                      <td class="text-right audit-total-cell">
+                        <strong>\${{ auditOrderTotal(order) | number:'1.2-2' }}</strong>
+                        <small>{{ order.items.length }} {{ order.items.length === 1 ? 'item' : 'items' }}</small>
+                      </td>
+                      <td class="text-right audit-actions-cell" (click)="$event.stopPropagation()">
+                        <div class="audit-action-btns">
+                          <button
+                            type="button"
+                            class="btn-audit-detail"
+                            (click)="openAuditDetailModal(order)"
+                            title="Ver desglose y trazabilidad completa"
+                          >
+                            <i class="bi bi-eye-fill" aria-hidden="true"></i> Auditar
+                          </button>
+                          @if (order.status === 'COBRADO') {
+                            <button
+                              type="button"
+                              class="btn-audit-reprint"
+                              (click)="printSingleOrderTicket(order.id)"
+                              title="Reimprimir ticket de caja"
+                            >
+                              <i class="bi bi-printer-fill" aria-hidden="true"></i>
+                            </button>
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Paginación de Auditoría (10 por página) -->
+            <div class="audit-pagination-bar">
+              <span class="pagination-info">
+                Mostrando comandas <strong>{{ (auditCurrentPage() - 1) * auditPageSize() + 1 }}</strong> a <strong>{{ (auditCurrentPage() * auditPageSize() > sortedAuditOrders().length ? sortedAuditOrders().length : auditCurrentPage() * auditPageSize()) }}</strong> de <strong>{{ sortedAuditOrders().length }}</strong> encontradas
+              </span>
+              <div class="pagination-controls">
+                <button
+                  type="button"
+                  class="pagination-btn"
+                  [disabled]="auditCurrentPage() <= 1"
+                  (click)="goToAuditPage(auditCurrentPage() - 1)"
+                >
+                  <i class="bi bi-chevron-left" aria-hidden="true"></i> Anterior
+                </button>
+                <span class="pagination-page-indicator">
+                  Página <strong>{{ auditCurrentPage() }}</strong> de <strong>{{ auditTotalPages() }}</strong>
+                </span>
+                <button
+                  type="button"
+                  class="pagination-btn"
+                  [disabled]="auditCurrentPage() >= auditTotalPages()"
+                  (click)="goToAuditPage(auditCurrentPage() + 1)"
+                >
+                  Siguiente <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="audit-empty-state">
+              <i class="bi bi-inbox empty-icon" aria-hidden="true"></i>
+              <h3>No se encontraron comandas</h3>
+              <p>No hay resultados que coincidan con la búsqueda o los filtros seleccionados.</p>
+              <button
+                type="button"
+                class="btn-ghost"
+                (click)="resetAuditFilters()"
+                style="margin-top: 0.5rem; border: 1px solid #cbd5e1; font-weight: 700;"
+              >
+                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restablecer filtros de auditoría
+              </button>
+            </div>
+          }
+        </article>
       </div>
 
       @if (isReportOptionsModalOpen()) {
@@ -579,6 +900,175 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
               } @else {
                 <p class="empty-state">No hay ventas por productos en el periodo seleccionado.</p>
               }
+            </div>
+          </article>
+        </div>
+      }
+
+      <!-- MODAL DE DETALLE DE AUDITORIA DE COMANDA -->
+      @if (isAuditDetailModalOpen() && selectedAuditOrder(); as order) {
+        <div class="overlay" (click)="closeAuditDetailModal()">
+          <article class="modal audit-detail-modal" (click)="$event.stopPropagation()">
+            <div class="modal-head">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="modal-head-tag">AUDITORÍA</span>
+                <div>
+                  <h2 style="margin: 0; font-size: 1.35rem; color: #0f172a;">Comanda {{ order.id }}</h2>
+                  <small style="color: #64748b; font-weight: 600;">Mesa {{ tableLabel(order) }} · Creada el {{ order.createdAt | date:'dd/MM/yyyy hh:mm:ss a' }}</small>
+                </div>
+              </div>
+              <button type="button" class="btn-ghost" (click)="closeAuditDetailModal()" aria-label="Cerrar modal">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <div class="audit-detail-body">
+              <!-- Estado y Trazabilidad -->
+              <div class="audit-status-summary-card" [style.background]="auditStatusBadgeStyle(order.status).bg" [style.border-color]="auditStatusBadgeStyle(order.status).border">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="audit-status-badge" [style.background]="auditStatusBadgeStyle(order.status).bg" [style.color]="auditStatusBadgeStyle(order.status).color" [style.border-color]="auditStatusBadgeStyle(order.status).border" style="font-size: 0.85rem; padding: 0.35rem 0.8rem;">
+                      {{ auditStatusLabel(order.status) }}
+                    </span>
+                    <strong style="color: #1e293b; font-size: 0.95rem;">Ciclo y Trazabilidad</strong>
+                  </div>
+                  <span style="font-weight: 800; font-size: 1.15rem; color: #059669;">
+                    Total: \${{ auditOrderTotal(order) | number:'1.2-2' }}
+                  </span>
+                </div>
+
+                <div class="audit-trace-grid">
+                  <div class="trace-item">
+                    <span class="trace-label">Cliente:</span>
+                    <strong class="trace-val">{{ order.clientName || 'Sin registrar' }}</strong>
+                  </div>
+                  <div class="trace-item">
+                    <span class="trace-label">Cédula / Documento:</span>
+                    <strong class="trace-val">{{ order.clientDocumentId || 'N/A' }}</strong>
+                  </div>
+                  <div class="trace-item">
+                    <span class="trace-label">Canal de Ingreso:</span>
+                    <strong class="trace-val">{{ order.source === 'QR' ? 'Autoservicio QR' : 'Mesonero' }}</strong>
+                  </div>
+                  <div class="trace-item">
+                    <span class="trace-label">Registrada por:</span>
+                    <strong class="trace-val">{{ getUserDisplayName(order.createdByUserId) }}</strong>
+                  </div>
+                  <div class="trace-item">
+                    <span class="trace-label">Hora de Apertura:</span>
+                    <strong class="trace-val">{{ order.createdAt | date:'short' }}</strong>
+                  </div>
+                  @if (order.closedAt) {
+                    <div class="trace-item">
+                      <span class="trace-label">Hora de Cobro / Cierre:</span>
+                      <strong class="trace-val">{{ order.closedAt | date:'short' }}</strong>
+                    </div>
+                  }
+                  @if (order.cancelledAt) {
+                    <div class="trace-item" style="grid-column: span 2;">
+                      <span class="trace-label" style="color: #b91c1c;">Hora de Anulación:</span>
+                      <strong class="trace-val" style="color: #b91c1c;">{{ order.cancelledAt | date:'short' }} (Por: {{ getUserDisplayName(order.cancelledByUserId) }})</strong>
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Información de Pago (si aplica) -->
+              @if (order.paymentMethod || order.closedAt) {
+                <div class="audit-payment-box">
+                  <h4 style="margin: 0 0 0.5rem; font-size: 0.9rem; color: #334155; font-weight: 800;">
+                    <i class="bi bi-credit-card-2-front-fill" style="color: #2563eb;" aria-hidden="true"></i> Registro de Pago y Facturación
+                  </h4>
+                  <div class="audit-trace-grid">
+                    <div class="trace-item">
+                      <span class="trace-label">Método:</span>
+                      <strong class="trace-val">{{ order.paymentMethod || 'No especificado' }}</strong>
+                    </div>
+                    <div class="trace-item">
+                      <span class="trace-label">Referencia:</span>
+                      <strong class="trace-val">{{ order.paymentReference || 'Sin referencia' }}</strong>
+                    </div>
+                    <div class="trace-item">
+                      <span class="trace-label">Monto USD:</span>
+                      <strong class="trace-val">\${{ (order.paymentAmountUsd || auditOrderTotal(order)) | number:'1.2-2' }}</strong>
+                    </div>
+                    <div class="trace-item">
+                      <span class="trace-label">Monto Bs:</span>
+                      <strong class="trace-val">{{ (order.paymentAmountBs || (auditOrderTotal(order) * appBcvRate())) | number:'1.2-2' }} Bs.</strong>
+                    </div>
+                    @if (order.paymentVerificationStatus) {
+                      <div class="trace-item">
+                        <span class="trace-label">Verificación de Pago:</span>
+                        <strong class="trace-val">{{ order.paymentVerificationStatus }}</strong>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
+              <!-- Tabla de Items y Trazabilidad de Preparación -->
+              <h4 style="margin: 1.25rem 0 0.5rem; font-size: 0.95rem; color: #1e293b; font-weight: 800;">
+                <i class="bi bi-receipt" aria-hidden="true"></i> Desglose de Productos Auditados ({{ order.items.length }})
+              </h4>
+              <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 0.75rem;">
+                <table class="audit-subtable">
+                  <thead>
+                    <tr>
+                      <th>Cant.</th>
+                      <th>Producto</th>
+                      <th>Área / Cocina</th>
+                      <th>Local</th>
+                      <th>Estado del Item</th>
+                      <th class="text-right">Precio</th>
+                      <th class="text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of order.items; track item.id) {
+                      <tr>
+                        <td style="font-weight: 900; color: #0f172a;">{{ item.quantity }}x</td>
+                        <td>
+                          <strong>{{ item.productName }}</strong>
+                          @if (item.note) {
+                            <small class="item-audit-note"><i class="bi bi-chat-left-text" aria-hidden="true"></i> {{ item.note }}</small>
+                          }
+                        </td>
+                        <td>
+                          <span class="area-badge">{{ item.area }}</span>
+                        </td>
+                        <td>
+                          <span class="audit-local-tag">{{ localLabel(item.restaurantId) }}</span>
+                        </td>
+                        <td>
+                          <span class="item-status-pill" [class]="'item-status-' + (item.status || 'PENDIENTE').toLowerCase()">
+                            {{ item.status || 'PENDIENTE' }}
+                          </span>
+                        </td>
+                        <td class="text-right">\${{ item.unitPrice | number:'1.2-2' }}</td>
+                        <td class="text-right" style="font-weight: 800; color: #059669;">
+                          \${{ (item.quantity * item.unitPrice) | number:'1.2-2' }}
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="modal-foot" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+              <button type="button" class="btn-ghost" (click)="closeAuditDetailModal()">
+                Cerrar Auditoría
+              </button>
+              <div style="display: flex; gap: 0.5rem;">
+                <button
+                  type="button"
+                  class="btn-action"
+                  style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #fff; padding: 0.5rem 1.1rem; border-radius: 0.65rem; font-weight: 800; border: none; display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;"
+                  (click)="printSingleOrderTicket(order.id)"
+                >
+                  <i class="bi bi-printer-fill" aria-hidden="true"></i> Reimprimir Factura / Comprobante
+                </button>
+              </div>
             </div>
           </article>
         </div>
@@ -1148,6 +1638,725 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
         justify-items: center;
       }
     }
+
+    /* --- AUDIT PANEL STYLES --- */
+    .audit-section-panel {
+      margin-top: 1.5rem;
+      background: #ffffff;
+      border-radius: 1.25rem;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+      padding: 1.35rem;
+      display: grid;
+      gap: 1.15rem;
+    }
+
+    .audit-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .audit-header-titles {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .audit-header-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 0.75rem;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: #38bdf8;
+      display: grid;
+      place-items: center;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+    }
+
+    .audit-title {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+    }
+
+    .audit-subtitle {
+      margin: 0.2rem 0 0;
+      font-size: 0.84rem;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .audit-kpis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .audit-kpi-chip {
+      display: flex;
+      flex-direction: column;
+      padding: 0.35rem 0.75rem;
+      border-radius: 0.65rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      min-width: 74px;
+    }
+
+    .audit-kpi-chip .kpi-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .audit-kpi-chip .kpi-val {
+      font-size: 0.95rem;
+      font-weight: 900;
+      color: #1e293b;
+    }
+
+    .audit-kpi-chip.chip-cobrado {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+    }
+    .audit-kpi-chip.chip-cobrado .kpi-val { color: #047857; }
+
+    .audit-kpi-chip.chip-proceso {
+      background: #fffbeb;
+      border-color: #fde68a;
+    }
+    .audit-kpi-chip.chip-proceso .kpi-val { color: #b45309; }
+
+    .audit-kpi-chip.chip-pendiente {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+    .audit-kpi-chip.chip-pendiente .kpi-val { color: #475569; }
+
+    .audit-kpi-chip.chip-anulado {
+      background: #fef2f2;
+      border-color: #fecaca;
+    }
+    .audit-kpi-chip.chip-anulado .kpi-val { color: #b91c1c; }
+
+    .audit-kpi-chip.chip-total {
+      background: #f0fdf4;
+      border-color: #86efac;
+    }
+    .audit-kpi-chip.chip-total .kpi-val { color: #15803d; }
+
+    .audit-controls-bar {
+      display: grid;
+      grid-template-columns: 1.5fr 2.5fr;
+      gap: 0.85rem;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .audit-controls-bar {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .audit-search-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .audit-search-box .search-icon {
+      position: absolute;
+      left: 0.85rem;
+      color: #94a3b8;
+      font-size: 0.95rem;
+      pointer-events: none;
+    }
+
+    .audit-search-input {
+      width: 100%;
+      height: 42px;
+      padding: 0 2.2rem 0 2.4rem;
+      border-radius: 0.75rem;
+      border: 1.5px solid #cbd5e1;
+      font-size: 0.88rem;
+      color: #1e293b;
+      background: #ffffff;
+      outline: none;
+      transition: all 0.15s ease;
+    }
+
+    .audit-search-input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .search-clear-btn {
+      position: absolute;
+      right: 0.75rem;
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 0.95rem;
+      padding: 0;
+      display: grid;
+      place-items: center;
+    }
+    .search-clear-btn:hover { color: #475569; }
+
+    .audit-filter-dropdowns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+    }
+
+    .audit-select-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #475569;
+      flex: 1 1 auto;
+      min-width: 140px;
+    }
+
+    .audit-select-label select {
+      flex: 1;
+      height: 40px;
+      border-radius: 0.65rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      padding: 0 0.6rem;
+      font-size: 0.84rem;
+      color: #1e293b;
+      font-weight: 600;
+      outline: none;
+    }
+    .audit-select-label select:focus {
+      border-color: #2563eb;
+    }
+
+    .audit-status-chips {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      padding: 0.65rem 0.85rem;
+      background: #f8fafc;
+      border-radius: 0.85rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .chips-title {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #475569;
+      margin-right: 0.35rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .status-chip {
+      padding: 0.35rem 0.75rem;
+      border-radius: 0.55rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #475569;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.15s ease;
+    }
+    .status-chip:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+    .status-chip.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+    }
+    .status-chip.chip-cobrado.active {
+      background: #059669;
+      border-color: #059669;
+    }
+    .status-chip.chip-entregado.active {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+    .status-chip.chip-proceso.active {
+      background: #d97706;
+      border-color: #d97706;
+    }
+    .status-chip.chip-pendiente.active {
+      background: #475569;
+      border-color: #475569;
+    }
+    .status-chip.chip-anulado.active {
+      background: #dc2626;
+      border-color: #dc2626;
+    }
+
+    .audit-table-wrapper {
+      overflow-x: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.85rem;
+      background: #ffffff;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+    }
+
+    .audit-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+      text-align: left;
+    }
+
+    .audit-table thead tr {
+      background: #f8fafc;
+      border-bottom: 2px solid #e2e8f0;
+      color: #475569;
+      font-weight: 800;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .audit-table th {
+      padding: 0.75rem 0.85rem;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .sortable-th {
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .sortable-th:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+
+    .th-content {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .th-content i {
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .sortable-th:hover .th-content i {
+      color: #2563eb;
+    }
+
+    .audit-row {
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .audit-row:hover {
+      background: #f8fafc;
+    }
+
+    .audit-table td {
+      padding: 0.65rem 0.85rem;
+      vertical-align: middle;
+    }
+
+    .audit-order-id {
+      font-family: monospace;
+      font-weight: 800;
+      font-size: 0.88rem;
+      color: #1e293b;
+      background: #f1f5f9;
+      padding: 0.2rem 0.45rem;
+      border-radius: 0.4rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .audit-date-cell {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+    .audit-date-cell strong {
+      font-size: 0.82rem;
+      color: #1e293b;
+    }
+    .audit-date-cell small {
+      font-size: 0.74rem;
+      color: #64748b;
+    }
+
+    .audit-table-badge {
+      font-weight: 800;
+      font-size: 0.82rem;
+      color: #334155;
+      background: #f1f5f9;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.45rem;
+      border: 1px solid #cbd5e1;
+      white-space: nowrap;
+    }
+
+    .audit-client-cell {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.25;
+    }
+    .audit-client-cell strong {
+      color: #0f172a;
+      font-size: 0.86rem;
+    }
+    .audit-client-cell small {
+      color: #64748b;
+      font-size: 0.74rem;
+    }
+
+    .audit-locals-cell {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+
+    .audit-local-tag {
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.35rem;
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      white-space: nowrap;
+    }
+
+    .audit-creator-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      line-height: 1.2;
+    }
+    .audit-creator-cell small {
+      font-size: 0.74rem;
+      color: #64748b;
+    }
+
+    .audit-source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.35rem;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      width: fit-content;
+    }
+    .audit-source-badge.source-qr {
+      background: #fdf4ff;
+      color: #86198f;
+      border-color: #f5d0fe;
+    }
+
+    .audit-status-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.25rem 0.6rem;
+      border-radius: 0.5rem;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .audit-total-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      line-height: 1.2;
+    }
+    .audit-total-cell strong {
+      font-size: 0.95rem;
+      color: #059669;
+      font-weight: 900;
+    }
+    .audit-total-cell small {
+      font-size: 0.72rem;
+      color: #64748b;
+    }
+
+    .audit-action-btns {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .btn-audit-detail {
+      font-size: 0.76rem;
+      font-weight: 800;
+      padding: 0.35rem 0.7rem;
+      border-radius: 0.5rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.15s ease;
+    }
+    .btn-audit-detail:hover {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+
+    .btn-audit-reprint {
+      font-size: 0.76rem;
+      font-weight: 800;
+      padding: 0.35rem 0.55rem;
+      border-radius: 0.5rem;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      transition: all 0.15s ease;
+    }
+    .btn-audit-reprint:hover {
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    .audit-pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid #f1f5f9;
+      font-size: 0.85rem;
+    }
+
+    .pagination-info {
+      color: #64748b;
+      font-size: 0.82rem;
+    }
+
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .pagination-btn {
+      padding: 0.35rem 0.75rem;
+      font-weight: 800;
+      font-size: 0.82rem;
+      border-radius: 0.5rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.15s ease;
+    }
+    .pagination-btn:hover:not(:disabled) {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+    .pagination-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .pagination-page-indicator {
+      font-size: 0.82rem;
+      color: #475569;
+      padding: 0 0.4rem;
+    }
+
+    .audit-empty-state {
+      padding: 3rem 1.5rem;
+      text-align: center;
+      background: #f8fafc;
+      border-radius: 0.85rem;
+      border: 1px dashed #cbd5e1;
+    }
+    .audit-empty-state .empty-icon {
+      font-size: 2.5rem;
+      color: #94a3b8;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .audit-empty-state h3 {
+      margin: 0;
+      color: #1e293b;
+      font-size: 1.1rem;
+      font-weight: 800;
+    }
+    .audit-empty-state p {
+      margin: 0.35rem 0 0.5rem;
+      color: #64748b;
+      font-size: 0.86rem;
+    }
+
+    /* Modal de Auditoría Detallada */
+    .audit-detail-modal {
+      width: min(840px, 96vw);
+      max-height: 92vh;
+      overflow-y: auto;
+      border-radius: 1.25rem;
+      background: #ffffff;
+      padding: 1.5rem;
+    }
+
+    .modal-head-tag {
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      padding: 0.25rem 0.6rem;
+      border-radius: 0.45rem;
+      background: #0f172a;
+      color: #38bdf8;
+    }
+
+    .audit-detail-body {
+      display: grid;
+      gap: 1.15rem;
+      margin-top: 1rem;
+    }
+
+    .audit-status-summary-card {
+      padding: 1rem 1.15rem;
+      border-radius: 0.85rem;
+      border: 1px solid #e2e8f0;
+      display: grid;
+      gap: 0.85rem;
+    }
+
+    .audit-trace-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.65rem 1.2rem;
+    }
+
+    .trace-item {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+    .trace-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .trace-val {
+      font-size: 0.88rem;
+      color: #0f172a;
+      margin-top: 0.15rem;
+    }
+
+    .audit-payment-box {
+      padding: 0.95rem 1.15rem;
+      border-radius: 0.85rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+
+    .audit-subtable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+    .audit-subtable thead tr {
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .audit-subtable th {
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+    }
+    .audit-subtable td {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+
+    .area-badge {
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.35rem;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+
+    .item-status-pill {
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 0.4rem;
+      text-transform: uppercase;
+    }
+    .item-status-pill.item-status-pendiente {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .item-status-pill.item-status-en_proceso {
+      background: #fffbeb;
+      color: #b45309;
+    }
+    .item-status-pill.item-status-listo {
+      background: #f0fdf4;
+      color: #15803d;
+    }
+    .item-status-pill.item-status-entregado {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .item-status-pill.item-status-anulado {
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+
+    .item-audit-note {
+      display: block;
+      color: #d97706;
+      font-size: 0.74rem;
+      font-weight: 700;
+      margin-top: 0.15rem;
+    }
+
   `
 })
 export class ReportsPageComponent {
@@ -1659,9 +2868,16 @@ export class ReportsPageComponent {
     return this.state.restaurants().find((restaurant) => restaurant.id === local)?.name ?? local;
   }
 
-  private orderTotal(order: Order): number {
+  orderTotal(order: Order): number {
     return order.items
       .filter((item) => this.restaurant === 'ALL' || item.restaurantId === this.restaurant)
+      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  }
+
+  auditOrderTotal(order: Order): number {
+    const restaurant = this.auditRestaurantFilter();
+    return order.items
+      .filter((item) => restaurant === 'ALL' || item.restaurantId === restaurant)
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }
 
@@ -1870,4 +3086,263 @@ export class ReportsPageComponent {
 
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   }
+
+  // --- LOGICA DEL PANEL DE AUDITORIA GENERAL DE COMANDAS ---
+  readonly auditSearchQuery = signal('');
+  readonly auditStatusFilter = signal<string>('ALL');
+  readonly auditRestaurantFilter = signal<string>('ALL');
+  readonly auditSourceFilter = signal<string>('ALL');
+  readonly auditPaymentFilter = signal<string>('ALL');
+  readonly auditSortColumn = signal<'id' | 'createdAt' | 'table' | 'client' | 'status' | 'total'>('createdAt');
+  readonly auditSortDirection = signal<'asc' | 'desc'>('desc');
+  readonly auditCurrentPage = signal<number>(1);
+  readonly auditPageSize = signal<number>(10);
+  readonly selectedAuditOrder = signal<Order | null>(null);
+  readonly isAuditDetailModalOpen = signal<boolean>(false);
+
+  readonly allAuditOrders = computed<Order[]>(() => {
+    const rawOrders = this.state.orders();
+    const allowedLocals = this.localKeys();
+    if (this.canSelectAllRestaurants()) {
+      return rawOrders;
+    }
+    return rawOrders.filter((order) =>
+      order.items.some((item) => allowedLocals.includes(item.restaurantId))
+    );
+  });
+
+  readonly auditCounts = computed(() => {
+    const orders = this.allAuditOrders();
+    let total = orders.length;
+    let cobradas = 0;
+    let entregadas = 0;
+    let enProceso = 0;
+    let pendientes = 0;
+    let anuladas = 0;
+    let totalMonto = 0;
+
+    for (const order of orders) {
+      if (order.status === 'COBRADO') cobradas++;
+      else if (order.status === 'ENTREGADO') entregadas++;
+      else if (order.status === 'EN_PROCESO' || order.status === 'LISTO') enProceso++;
+      else if (order.status === 'PENDIENTE') pendientes++;
+      else if (order.status === 'ANULADO') anuladas++;
+
+      if (order.status !== 'ANULADO') {
+        totalMonto += this.auditOrderTotal(order);
+      }
+    }
+
+    return { total, cobradas, entregadas, enProceso, pendientes, anuladas, totalMonto };
+  });
+
+  readonly filteredAuditOrders = computed<Order[]>(() => {
+    const orders = this.allAuditOrders();
+    const query = this.auditSearchQuery().trim().toLowerCase();
+    const status = this.auditStatusFilter();
+    const restaurant = this.auditRestaurantFilter();
+    const source = this.auditSourceFilter();
+    const payment = this.auditPaymentFilter();
+
+    return orders.filter((order) => {
+      // Filtro de Estado
+      if (status !== 'ALL') {
+        if (status === 'EN_PROCESO' && (order.status === 'EN_PROCESO' || order.status === 'LISTO')) {
+          // Coincide con preparación activa
+        } else if (order.status !== status) {
+          return false;
+        }
+      }
+
+      // Filtro de Restaurante
+      if (restaurant !== 'ALL') {
+        if (!order.items.some((i) => i.restaurantId === restaurant)) {
+          return false;
+        }
+      }
+
+      // Filtro de Origen
+      if (source !== 'ALL') {
+        if (order.source !== source) {
+          return false;
+        }
+      }
+
+      // Filtro de Pago
+      if (payment !== 'ALL') {
+        const orderPayment = this.getPaymentMethodFilterValue(order);
+        if (orderPayment !== payment) {
+          return false;
+        }
+      }
+
+      // Filtro de Búsqueda de texto
+      if (query) {
+        const idMatch = order.id.toLowerCase().includes(query);
+        const clientMatch = (order.clientName || '').toLowerCase().includes(query);
+        const docMatch = (order.clientDocumentId || '').toLowerCase().includes(query);
+        const tableMatch = String(order.tableNumber).includes(query) || this.tableLabel(order).toLowerCase().includes(query);
+        const userCreator = this.getUserDisplayName(order.createdByUserId).toLowerCase();
+        const userMatch = userCreator.includes(query);
+        const refMatch = (order.paymentReference || '').toLowerCase().includes(query);
+        const methodMatch = (order.paymentMethod || '').toLowerCase().includes(query);
+        const itemsMatch = order.items.some((item) =>
+          item.productName.toLowerCase().includes(query)
+        );
+
+        if (!idMatch && !clientMatch && !docMatch && !tableMatch && !userMatch && !refMatch && !methodMatch && !itemsMatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  });
+
+  readonly sortedAuditOrders = computed<Order[]>(() => {
+    const orders = [...this.filteredAuditOrders()];
+    const col = this.auditSortColumn();
+    const dir = this.auditSortDirection() === 'asc' ? 1 : -1;
+
+    return orders.sort((a, b) => {
+      if (col === 'total') {
+        return (this.auditOrderTotal(a) - this.auditOrderTotal(b)) * dir;
+      }
+      if (col === 'createdAt') {
+        return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
+      }
+      if (col === 'id') {
+        return a.id.localeCompare(b.id) * dir;
+      }
+      if (col === 'table') {
+        return (a.tableNumber - b.tableNumber) * dir;
+      }
+      if (col === 'client') {
+        return (a.clientName || '').localeCompare(b.clientName || '') * dir;
+      }
+      if (col === 'status') {
+        return a.status.localeCompare(b.status) * dir;
+      }
+      return 0;
+    });
+  });
+
+  readonly auditTotalPages = computed<number>(() => {
+    const total = this.sortedAuditOrders().length;
+    return Math.max(1, Math.ceil(total / this.auditPageSize()));
+  });
+
+  readonly paginatedAuditOrders = computed<Order[]>(() => {
+    const page = Math.min(this.auditCurrentPage(), this.auditTotalPages());
+    const start = (page - 1) * this.auditPageSize();
+    return this.sortedAuditOrders().slice(start, start + this.auditPageSize());
+  });
+
+  toggleAuditSort(col: 'id' | 'createdAt' | 'table' | 'client' | 'status' | 'total'): void {
+    if (this.auditSortColumn() === col) {
+      this.auditSortDirection.update((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      this.auditSortColumn.set(col);
+      this.auditSortDirection.set(col === 'createdAt' || col === 'total' ? 'desc' : 'asc');
+    }
+    this.auditCurrentPage.set(1);
+  }
+
+  goToAuditPage(page: number): void {
+    if (page >= 1 && page <= this.auditTotalPages()) {
+      this.auditCurrentPage.set(page);
+    }
+  }
+
+  onAuditSearchChange(term: string): void {
+    this.auditSearchQuery.set(term);
+    this.auditCurrentPage.set(1);
+  }
+
+  setAuditStatus(status: string): void {
+    this.auditStatusFilter.set(status);
+    this.auditCurrentPage.set(1);
+  }
+
+  setAuditRestaurantFilter(restaurant: string): void {
+    this.auditRestaurantFilter.set(restaurant);
+    this.auditCurrentPage.set(1);
+  }
+
+  setAuditSourceFilter(source: string): void {
+    this.auditSourceFilter.set(source);
+    this.auditCurrentPage.set(1);
+  }
+
+  setAuditPaymentFilter(payment: string): void {
+    this.auditPaymentFilter.set(payment);
+    this.auditCurrentPage.set(1);
+  }
+
+  resetAuditFilters(): void {
+    this.auditSearchQuery.set('');
+    this.auditStatusFilter.set('ALL');
+    this.auditRestaurantFilter.set('ALL');
+    this.auditSourceFilter.set('ALL');
+    this.auditPaymentFilter.set('ALL');
+    this.auditSortColumn.set('createdAt');
+    this.auditSortDirection.set('desc');
+    this.auditCurrentPage.set(1);
+  }
+
+  openAuditDetailModal(order: Order): void {
+    this.selectedAuditOrder.set(order);
+    this.isAuditDetailModalOpen.set(true);
+  }
+
+  closeAuditDetailModal(): void {
+    this.selectedAuditOrder.set(null);
+    this.isAuditDetailModalOpen.set(false);
+  }
+
+  getUserDisplayName(userId?: string): string {
+    if (!userId) return 'Sistema / No asignado';
+    const user = this.state.users().find((u) => u.id === userId);
+    return user?.displayName || user?.email || userId;
+  }
+
+  auditStatusLabel(status: OrderStatus): string {
+    switch (status) {
+      case 'COBRADO': return 'Cobrado';
+      case 'ENTREGADO': return 'Entregado';
+      case 'LISTO': return 'Listo';
+      case 'EN_PROCESO': return 'En Preparación';
+      case 'PENDIENTE': return 'Pendiente';
+      case 'ANULADO': return 'Anulado';
+      default: return status;
+    }
+  }
+
+  auditStatusBadgeStyle(status: OrderStatus): { bg: string; color: string; border: string } {
+    switch (status) {
+      case 'COBRADO':
+        return { bg: '#ecfdf5', color: '#047857', border: '#a7f3d0' };
+      case 'ENTREGADO':
+        return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
+      case 'LISTO':
+        return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' };
+      case 'EN_PROCESO':
+        return { bg: '#fffbeb', color: '#b45309', border: '#fde68a' };
+      case 'PENDIENTE':
+        return { bg: '#f8fafc', color: '#475569', border: '#cbd5e1' };
+      case 'ANULADO':
+        return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
+      default:
+        return { bg: '#f1f5f9', color: '#334155', border: '#e2e8f0' };
+    }
+  }
+
+  orderRestaurants(order: Order): RestaurantId[] {
+    return [...new Set(order.items.map((i) => i.restaurantId))];
+  }
+
+  appBcvRate(): number {
+    return this.state.appSettings().bcvRate || 1;
+  }
 }
+
