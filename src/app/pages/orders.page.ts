@@ -347,15 +347,9 @@ interface DeliveredTableGroup {
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <button
-                          type="button"
-                          class="line-status-chip chip-pending btn-action-ready"
-                          style="cursor: pointer; background: #fef3c7; color: #92400e; border: 1px solid #fde68a;"
-                          title="Hacer clic para marcar producto como LISTO / PREPARADO"
-                          (click)="markItemReadyInOrders($event, order.id, item.id)"
-                        >
-                          <i class="bi bi-clock-history" aria-hidden="true"></i> En prep. (Listo?)
-                        </button>
+                        <span class="line-status-chip chip-pending">
+                          <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
+                        </span>
                       }
                     </li>
                   }
@@ -1228,15 +1222,9 @@ interface DeliveredTableGroup {
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <button
-                          type="button"
-                          class="line-status-chip chip-pending btn-action-ready"
-                          style="font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
-                          title="Hacer clic para marcar como LISTO / PREPARADO"
-                          (click)="markItemReadyInOrders($event, selectedOrder()!.id, item.id)"
-                        >
-                          <i class="bi bi-check-circle" aria-hidden="true"></i> Marcar Listo
-                        </button>
+                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                          <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
+                        </span>
                       }
                     </div>
                     <small>{{ item.restaurantId }} / {{ item.area }}</small>
@@ -1301,11 +1289,7 @@ interface DeliveredTableGroup {
                 </button>
               }
 
-              @if (hasPendingItems(selectedOrder()!)) {
-                <button type="button" class="btn-ghost" style="color: #059669; border-color: #6ee7b7;" (click)="markAllReadyInOrders(selectedOrder()!.id)">
-                  <span class="btn-content"><i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>Marcar toda lista</span>
-                </button>
-              }
+
 
               @if (selectedOrder()!.status === 'ENTREGADO' && !isPendingPaymentVerification(selectedOrder()!)) {
                 <button type="button" class="btn-ghost" (click)="toggleBillSummary()">
@@ -3845,6 +3829,7 @@ export class OrdersPageComponent {
 
   readonly canAccessComandas = computed(() => this.state.canAccessModule('comandas'));
   readonly isAdmin = computed(() => this.state.isAdmin());
+  readonly isMesonero = computed(() => this.state.isMesonero());
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
   readonly dataError = computed(() => this.state.runtimeDataError());
   readonly defaultBillTipPercent = computed(() => this.state.appSettings().defaultTipPercent);
@@ -4990,14 +4975,7 @@ export class OrdersPageComponent {
     this.state.markItemDelivered(orderId, itemId);
   }
 
-  markItemReadyInOrders(event: Event, orderId: string, itemId: string): void {
-    event.stopPropagation();
-    this.state.markItemReady(orderId, itemId, 'ALL');
-  }
 
-  markAllReadyInOrders(orderId: string): void {
-    this.state.markOrderReady(orderId, 'ALL');
-  }
 
   selectedOrderTotalFor(order: Order): number {
     if (!order || !order.items) return 0;
