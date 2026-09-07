@@ -1,5 +1,5 @@
 import { CommonModule, CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppStateService } from '../core/app-state.service';
 import { Order, OrderItem, PaymentMethod, RestaurantId } from '../core/models';
@@ -13,12 +13,16 @@ import {
 const PAPA_AND_SON_IVA_RATE = 0.16;
 const RECEIPT_WIDTH = 32;
 
-function normalizePapaAndSonBoardTableNumber(tableNumber: number): number {
-  if (tableNumber >= 1 && tableNumber <= 50) {
-    return 400 + tableNumber;
+function normalizePapaAndSonBoardTableNumber(tableNumber: number | string): number {
+  const num = Number(tableNumber);
+  if (Number.isNaN(num) || num <= 0) {
+    return 0;
+  }
+  if (num >= 1 && num <= 50) {
+    return 400 + num;
   }
 
-  return tableNumber;
+  return num;
 }
 
 interface CashierOrderView {
@@ -333,6 +337,15 @@ interface PaymentReceiptSnapshot {
                           <span class="cashier-floor-table-label">{{ table.label }}</span>
                           @if (papaAndSonTableView(table.tableNumber); as tableView) {
                             <strong class="cashier-floor-table-state">{{ papaAndSonTableStatusLabel(tableView, table.tableNumber) }}</strong>
+                            <span class="cashier-floor-table-client" style="font-size: 0.72rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
+                              {{ tableView.clientName }}
+                            </span>
+                            <span class="cashier-floor-table-orders" style="font-size: 0.68rem; opacity: 0.85;">
+                              #{{ shortOrderId(tableView.orders[0]?.id || '') }}
+                            </span>
+                            <strong class="cashier-floor-table-amount" style="font-size: 0.82rem; font-weight: 900;">
+                              {{ tableView.total | currency:'USD' }}
+                            </strong>
                             @if (papaAndSonTableClientCount(table.tableNumber) > 1) {
                               <small class="cashier-floor-table-meta">{{ papaAndSonTableClientCount(table.tableNumber) }} cédulas</small>
                             }
@@ -623,13 +636,19 @@ interface PaymentReceiptSnapshot {
             </div>
 
             @if (selectedActiveClientView()) {
+              <div class="cashier-side-group-selector-head" style="margin-bottom: 0.6rem; padding: 0.5rem 0.75rem; background: #f8fafc; border-radius: 0.5rem; border-left: 4px solid #d4a012; border: 1px solid #e2e8f0;">
+                <strong style="font-size: 0.95rem; color: #1e293b; display: block;">
+                  Comandas en mesa {{ selectedPapaAndSonTableLabel() || clientTables(selectedActiveClientView()!) }}
+                </strong>
+                @if (selectedPapaAndSonTableClientViews().length > 1) {
+                  <small style="color: #64748b; font-size: 0.75rem;">{{ selectedPapaAndSonTableClientViews().length }} cuentas en esta mesa. Selecciona la cédula a cobrar o usa cobrar todo.</small>
+                } @else {
+                  <small style="color: #64748b; font-size: 0.75rem;">1 comanda activa en esta mesa.</small>
+                }
+              </div>
+
               @if (selectedPapaAndSonTableClientViews().length > 1) {
                 <div class="cashier-side-group-selector">
-                  <div class="cashier-side-group-selector-head">
-                    <strong>Comandas en mesa {{ selectedPapaAndSonTableLabel() }}</strong>
-                    <small>Selecciona la cédula a cobrar o usa cobrar todo.</small>
-                  </div>
-
                   <div class="cashier-side-group-list">
                     @for (view of selectedPapaAndSonTableClientViews(); track view.key) {
                       <button
@@ -1328,8 +1347,8 @@ interface PaymentReceiptSnapshot {
     }
 
     .cashier-floor-table {
-      min-height: 86px;
-      padding: 0.65rem 0.5rem;
+      min-height: 96px;
+      padding: 0.5rem 0.35rem;
       border-radius: 0.95rem;
       border: 1.5px solid rgba(45, 41, 32, 0.55);
       background: #ffffff;
@@ -1338,11 +1357,12 @@ interface PaymentReceiptSnapshot {
       flex-direction: column;
       align-items: center;
       justify-content: flex-start;
-      gap: 0.45rem;
+      gap: 0.2rem;
       box-shadow: 0 6px 14px rgba(84, 73, 41, 0.08);
       transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
       max-width: 130px; 
-    width: 100%;
+      width: 100%;
+      overflow: hidden;
     }
 
     .cashier-floor-table:hover {
@@ -2847,23 +2867,35 @@ export class DashboardPageComponent {
       this.papaAndSonAreaLayouts.find((area) => area.id === this.selectedPapaAndSonArea()) ??
       this.papaAndSonAreaLayouts[0]
   );
-  readonly shouldShowPapaAndSonBoard = computed(
-    () => this.viewMode() === 'ACTIVAS' && this.visibleRestaurantIds().length === 1 && this.visibleRestaurantIds()[0] === 'PAPA_Y_SON'
-  );
+  readonly shouldShowPapaAndSonBoard = computed(() => {
+    if (this.viewMode() !== 'ACTIVAS') {
+      return false;
+    }
+    const selected = this.selectedRestaurant();
+    if (selected === 'PAPA_Y_SON') {
+      return true;
+    }
+    const allowed = this.state.allowedRestaurantIds();
+    if (allowed.length === 0 || allowed.includes('PAPA_Y_SON')) {
+      return selected === 'ALL';
+    }
+    return false;
+  });
+
   readonly papaAndSonTableViewMap = computed(() => {
     const viewsByTable = new Map<number, CashierClientView[]>();
 
     this.activeViews().forEach((view) => {
-      if (view.localId !== 'PAPA_Y_SON') {
-        return;
-      }
-
-      const tableNumbers = [...new Set(view.orders.map((order) => normalizePapaAndSonBoardTableNumber(order.tableNumber)))];
+      const tableNumbers = [
+        ...new Set(view.orders.map((order) => normalizePapaAndSonBoardTableNumber(order.tableNumber)))
+      ].filter((t) => t > 0);
 
       tableNumbers.forEach((tableNumber) => {
         const currentViews = viewsByTable.get(tableNumber) ?? [];
-        currentViews.push(view);
-        viewsByTable.set(tableNumber, currentViews);
+        if (!currentViews.some((v) => v.key === view.key)) {
+          currentViews.push(view);
+          viewsByTable.set(tableNumber, currentViews);
+        }
       });
     });
 
@@ -2892,6 +2924,13 @@ export class DashboardPageComponent {
     if (allowed.length === 1) {
       this.selectedRestaurant.set(allowed[0]);
     }
+
+    effect(() => {
+      const allowedIds = this.state.allowedRestaurantIds();
+      if (allowedIds.length === 1 && this.selectedRestaurant() === 'ALL') {
+        this.selectedRestaurant.set(allowedIds[0]);
+      }
+    });
 
     const timerId = setInterval(() => {
       void this.state.refreshRuntimeDataFromFirebase();
@@ -2972,12 +3011,20 @@ export class DashboardPageComponent {
     const groupedClients = new Map<string, CashierClientView>();
 
     this.state.orders().forEach((order) => {
-      if (order.status === 'ANULADO' || order.paymentVerificationStatus === 'PENDIENTE') {
+      if (order.status === 'ANULADO') {
         return;
       }
 
-      // Solo productos pendientes de cobro (no cobrados previamente)
-      const payableItems = order.items.filter((item) => !item.paid);
+      const uncancelledItems = order.items.filter((item) => item.status !== 'ANULADO');
+      const unpaidItems = uncancelledItems.filter((item) => !item.paid);
+
+      // Si la orden ya está cobrada y no tiene ítems nuevos sin pagar, ya no es activa
+      if (order.status === 'COBRADO' && !unpaidItems.length) {
+        return;
+      }
+
+      // Tomamos los ítems pendientes de cobro; si la comanda no está cobrada, se toman los unpaid o todos los no cancelados
+      const payableItems = unpaidItems.length > 0 ? unpaidItems : (order.status !== 'COBRADO' ? uncancelledItems : []);
       if (!payableItems.length) {
         return;
       }
@@ -3231,12 +3278,46 @@ export class DashboardPageComponent {
   readonly selectedDetailPaymentSummary = computed<CashierPaymentSummary>(() => {
     const active = this.selectedActiveClientView();
     if (active) {
-      return this.buildPaymentSummary(active.orders, true);
+      const summary = this.buildPaymentSummary(active.orders, true, active.localId);
+      if (summary.subtotalUsd > 0) {
+        return summary;
+      }
+      if (active.subtotal > 0) {
+        const subtotalUsd = active.subtotal;
+        const taxUsd = active.iva;
+        const totalUsd = active.total;
+        return {
+          subtotalUsd,
+          taxUsd,
+          taxBs: taxUsd * this.bcvRate(),
+          tipUsd: 0,
+          totalUsd,
+          totalBs: totalUsd * this.bcvRate()
+        };
+      }
+      return summary;
     }
 
     const history = this.selectedHistoryOrderView();
     if (history) {
-      return this.buildPaymentSummary([history.order], false);
+      const summary = this.buildPaymentSummary([history.order], false, history.localId);
+      if (summary.subtotalUsd > 0) {
+        return summary;
+      }
+      if (history.subtotal > 0) {
+        const subtotalUsd = history.subtotal;
+        const taxUsd = history.iva;
+        const totalUsd = history.total;
+        return {
+          subtotalUsd,
+          taxUsd,
+          taxBs: taxUsd * this.bcvRate(),
+          tipUsd: 0,
+          totalUsd,
+          totalBs: totalUsd * this.bcvRate()
+        };
+      }
+      return summary;
     }
 
     return {
@@ -3252,13 +3333,21 @@ export class DashboardPageComponent {
   readonly selectedDetailItems = computed<CashierDetailItemView[]>(() => {
     const active = this.selectedActiveClientView();
     if (active) {
-      const payableItems = active.orders.flatMap((order) => order.items.filter((item) => !item.paid));
-      return this.buildDetailItems(payableItems);
+      const localItems = active.orders
+        .flatMap((order) => order.items)
+        .filter((item) => !active.localId || item.restaurantId === active.localId);
+      const uncancelled = localItems.filter((item) => item.status !== 'ANULADO');
+      const unpaid = uncancelled.filter((item) => !item.paid);
+      const targetItems = unpaid.length > 0 ? unpaid : (uncancelled.length > 0 ? uncancelled : localItems);
+      return this.buildDetailItems(targetItems);
     }
 
     const history = this.selectedHistoryOrderView();
     if (history) {
-      return this.buildDetailItems(history.order.items);
+      const localItems = history.order.items.filter((item) => !history.localId || item.restaurantId === history.localId);
+      const uncancelled = localItems.filter((item) => item.status !== 'ANULADO');
+      const targetItems = uncancelled.length > 0 ? uncancelled : (localItems.length > 0 ? localItems : history.order.items);
+      return this.buildDetailItems(targetItems);
     }
 
     return [];
@@ -3507,7 +3596,9 @@ export class DashboardPageComponent {
 
     this.state.completeOrders(this.paymentOrderIds(), {
       paymentMethod: method,
-      paymentReference
+      paymentReference,
+      paymentAmountUsd: this.selectedDetailTotal(),
+      paymentAmountBs: this.selectedDetailTotalBs()
     });
 
     if (receiptSnapshot) {
@@ -3900,7 +3991,7 @@ export class DashboardPageComponent {
     return [...groupedItems.values()];
   }
 
-  private buildPaymentSummary(orders: Order[], onlyUnpaid = false): CashierPaymentSummary {
+  private buildPaymentSummary(orders: Order[], onlyUnpaid = false, localId?: RestaurantId): CashierPaymentSummary {
     if (!orders.length) {
       return {
         subtotalUsd: 0,
@@ -3912,9 +4003,15 @@ export class DashboardPageComponent {
       };
     }
 
+    const relevant = orders
+      .flatMap((order) => order.items)
+      .filter((item) => !localId || item.restaurantId === localId);
+    const nonCanceled = relevant.filter((item) => item.status !== 'ANULADO');
+    const unpaid = nonCanceled.filter((item) => !item.paid);
+
     const allItems = onlyUnpaid
-      ? orders.flatMap((order) => order.items.filter((item) => !item.paid))
-      : orders.flatMap((order) => order.items);
+      ? (unpaid.length > 0 ? unpaid : (nonCanceled.length > 0 ? nonCanceled : relevant))
+      : (nonCanceled.length > 0 ? nonCanceled : (relevant.length > 0 ? relevant : orders.flatMap((order) => order.items)));
 
     const subtotalUsd = allItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const taxUsd = subtotalUsd * PAPA_AND_SON_IVA_RATE;
