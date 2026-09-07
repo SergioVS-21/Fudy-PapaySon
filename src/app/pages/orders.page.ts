@@ -89,8 +89,13 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                         }
                       </ul>
                     </td>
-                    <td style="padding: 0.65rem 0.85rem; text-align: right; font-weight: 900; color: #059669;">
-                      \${{ selectedOrderTotalFor(order) | number:'1.2-2' }}
+                    <td style="padding: 0.65rem 0.85rem; text-align: right; font-size: 0.82rem;">
+                      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                        <span style="color: #64748b; font-size: 0.75rem;">Subt: \${{ selectedOrderTotalFor(order) | number:'1.2-2' }}</span>
+                        <span style="color: #64748b; font-size: 0.75rem;">+IVA (16%): \${{ (selectedOrderTotalFor(order) * 0.16) | number:'1.2-2' }}</span>
+                        <strong style="color: #059669; font-weight: 800; font-size: 0.9rem;">Total: \${{ (selectedOrderTotalFor(order) * 1.16) | number:'1.2-2' }}</strong>
+                        <small style="color: #6b7280; font-size: 0.72rem;">{{ (selectedOrderTotalFor(order) * 1.16 * bcvRate()) | number:'1.2-2' }} Bs</small>
+                      </div>
                     </td>
                     <td style="padding: 0.65rem 0.85rem; text-align: center;">
                       <span class="status-pill" [class]="'status-pill ' + statusClass(order.status)" style="font-size: 0.72rem; padding: 0.15rem 0.45rem;">
@@ -98,14 +103,25 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                       </span>
                     </td>
                     <td style="padding: 0.65rem 0.85rem; text-align: right;">
-                      <button
-                        type="button"
-                        style="font-size: 0.75rem; font-weight: 800; padding: 0.35rem 0.7rem; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; border: none; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);"
-                        title="Agregar más productos a esta comanda"
-                        (click)="$event.stopPropagation(); openAddItemsToOrder(order.id)"
-                      >
-                        <i class="bi bi-plus-circle-fill" aria-hidden="true"></i> Agregar más productos
-                      </button>
+                      @if (canAddItemsToOrder(order)) {
+                        <button
+                          type="button"
+                          style="font-size: 0.75rem; font-weight: 800; padding: 0.35rem 0.7rem; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #ffffff; border: none; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);"
+                          title="Agregar más productos a esta comanda"
+                          (click)="$event.stopPropagation(); openAddItemsToOrder(order.id)"
+                        >
+                          <i class="bi bi-plus-circle-fill" aria-hidden="true"></i> Agregar más productos
+                        </button>
+                      } @else {
+                        <button
+                          type="button"
+                          class="btn-ghost"
+                          style="font-size: 0.75rem; padding: 0.35rem 0.7rem;"
+                          (click)="$event.stopPropagation(); openDetail(order.id)"
+                        >
+                          <i class="bi bi-eye" aria-hidden="true"></i> Ver detalle
+                        </button>
+                      }
                     </td>
                   </tr>
                 } @empty {
@@ -230,7 +246,7 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
           @if (accountLookupDocumentId && groupedAccountOrders().length) {
             <p class="summary">
               Cliente: <strong>{{ groupedAccountClientName() }}</strong> · {{ groupedAccountOrders().length }} comandas ·
-              Total: <strong>{{ groupedAccountTotal() | currency:'USD' }}</strong>
+              Subtotal: <strong>{{ groupedAccountTotal() | currency:'USD' }}</strong> · +IVA: <strong>{{ (groupedAccountTotal() * 0.16) | currency:'USD' }}</strong> · Total: <strong>{{ (groupedAccountTotal() * 1.16) | currency:'USD' }}</strong>
             </p>
 
             <ul class="list grouped-account-list compact-account-list">
@@ -261,7 +277,10 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                     <small>Mesa {{ tableLabel(order) }} · {{ order.createdAt | date:'short' }}</small>
                     <small>{{ order.items.length }} items · Estado {{ statusLabel(order.status, order) }}</small>
                   </div>
-                  <strong>{{ orderTotalFromOrder(order) | currency:'USD' }}</strong>
+                  <div style="text-align: right; line-height: 1.2;">
+                    <div style="font-size: 0.72rem; color: #64748b;">Subt: {{ orderTotalFromOrder(order) | currency:'USD' }}</div>
+                    <strong style="color: #059669;">Total: {{ (orderTotalFromOrder(order) * 1.16) | currency:'USD' }}</strong>
+                  </div>
                 </li>
               }
               }
@@ -553,7 +572,11 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                                   <div class="product-picker-copy">
                                     <div class="product-picker-head product-picker-head--menu">
                                       <strong>{{ product.name }}</strong>
-                                      <span>{{ product.price | currency:'USD' }}</span>
+                                      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                                        <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ product.price | currency:'USD' }}</span>
+                                        <span style="font-size: 0.72rem; color: #64748b;">+IVA: {{ (product.price * 0.16) | currency:'USD' }}</span>
+                                        <strong style="font-size: 0.88rem; color: #059669;">Total: {{ (product.price * 1.16) | currency:'USD' }}</strong>
+                                      </div>
                                     </div>
                                     <small>{{ product.description || ('Aquí va la descripción de ' + product.name.toLowerCase()) }}</small>
                                   </div>
@@ -600,7 +623,10 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                                     <small>{{ line.quantity }} x {{ lineUnitPrice(line.productId) | currency:'USD' }}</small>
                                   </div>
                                   <div class="menu-order-item-actions">
-                                    <span>{{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                                      <span style="font-size: 0.72rem; color: #64748b;">Subt: {{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                                      <strong style="font-size: 0.82rem; color: #1f2937;">Total: {{ (lineTotal(line.productId, line.quantity) * 1.16) | currency:'USD' }}</strong>
+                                    </div>
                                     <button type="button" class="menu-order-remove-btn" (click)="removeLine(line.id)">
                                       <i class="bi bi-x-lg" aria-hidden="true"></i>
                                     </button>
@@ -614,7 +640,23 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                               }
                             </ul>
                             <div class="menu-order-sidebar-footer">
-                              <p class="menu-order-total"><span>Total estimado</span> <strong>{{ orderTotal() | currency:'USD' }}</strong></p>
+                              <div class="menu-order-total" style="display: flex; flex-direction: column; align-items: stretch; gap: 4px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                                  <span>Subtotal</span>
+                                  <span>{{ orderTotal() | currency:'USD' }}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                                  <span>+IVA (16%)</span>
+                                  <span>{{ (orderTotal() * 0.16) | currency:'USD' }}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+                                  <span>Total</span>
+                                  <span>{{ (orderTotal() * 1.16) | currency:'USD' }}</span>
+                                </div>
+                                <div style="text-align: right; font-size: 0.8rem; color: #6b7280;" [class.muted]="bcvRate() === 0">
+                                  <span>Total Bs: {{ (orderTotal() * 1.16 * bcvRate()) | number:'1.2-2' }} Bs</span>
+                                </div>
+                              </div>
                             </div>
                           </aside>
                         </section>
@@ -690,7 +732,11 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                               <div class="product-picker-copy">
                                 <div class="product-picker-head product-picker-head--menu">
                                   <strong>{{ product.name }}</strong>
-                                  <span>{{ product.price | currency:'USD' }}</span>
+                                  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                                    <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ product.price | currency:'USD' }}</span>
+                                    <span style="font-size: 0.72rem; color: #64748b;">+IVA: {{ (product.price * 0.16) | currency:'USD' }}</span>
+                                    <strong style="font-size: 0.88rem; color: #059669;">Total: {{ (product.price * 1.16) | currency:'USD' }}</strong>
+                                  </div>
                                 </div>
                                 <small>{{ product.description || ('Aquí va la descripción de ' + product.name.toLowerCase()) }}</small>
                               </div>
@@ -738,7 +784,10 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                                 <small>{{ line.quantity }} x {{ lineUnitPrice(line.productId) | currency:'USD' }}</small>
                               </div>
                               <div class="menu-order-item-actions">
-                                <span>{{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px;">
+                                  <span style="font-size: 0.72rem; color: #64748b;">Subt: {{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                                  <strong style="font-size: 0.82rem; color: #1f2937;">Total: {{ (lineTotal(line.productId, line.quantity) * 1.16) | currency:'USD' }}</strong>
+                                </div>
                                 <button type="button" class="menu-order-remove-btn" (click)="removeLine(line.id)">
                                   <i class="bi bi-x-lg" aria-hidden="true"></i>
                                 </button>
@@ -752,7 +801,23 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                           }
                         </ul>
                         <div class="menu-order-sidebar-footer">
-                          <p class="menu-order-total"><span>Total estimado</span> <strong>{{ orderTotal() | currency:'USD' }}</strong></p>
+                          <div class="menu-order-total" style="display: flex; flex-direction: column; align-items: stretch; gap: 4px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                              <span>Subtotal</span>
+                              <span>{{ orderTotal() | currency:'USD' }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                              <span>+IVA (16%)</span>
+                              <span>{{ (orderTotal() * 0.16) | currency:'USD' }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+                              <span>Total</span>
+                              <span>{{ (orderTotal() * 1.16) | currency:'USD' }}</span>
+                            </div>
+                            <div style="text-align: right; font-size: 0.8rem; color: #6b7280;" [class.muted]="bcvRate() === 0">
+                              <span>Total Bs: {{ (orderTotal() * 1.16 * bcvRate()) | number:'1.2-2' }} Bs</span>
+                            </div>
+                          </div>
                         </div>
                       </aside>
                     </section>
@@ -784,8 +849,9 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                           />
                         </label>
                       </div>
-                      <div class="stack">
-                        <span>{{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                      <div class="stack" style="text-align: right;">
+                        <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                        <strong style="color: #059669;">Total: {{ (lineTotal(line.productId, line.quantity) * 1.16) | currency:'USD' }}</strong>
                         <button type="button" class="btn-ghost" (click)="removeLine(line.id)">
                           <span class="btn-content"><i class="bi bi-trash btn-icon" aria-hidden="true"></i>Quitar</span>
                         </button>
@@ -795,7 +861,17 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                     <li>Aun no agregas productos.</li>
                   }
                 </ul>
-                <p class="resume-total"><strong>Total estimado:</strong> {{ orderTotal() | currency:'USD' }}</p>
+                <div class="resume-total" style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed #e2e8f0; padding-top: 0.5rem; margin-top: 0.5rem;">
+                  <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                    <span>Subtotal:</span> <strong>{{ orderTotal() | currency:'USD' }}</strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                    <span>+IVA (16%):</span> <strong>{{ (orderTotal() * 0.16) | currency:'USD' }}</strong>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 1rem; color: #059669;">
+                    <strong>Total:</strong> <strong>{{ (orderTotal() * 1.16) | currency:'USD' }} ({{ (orderTotal() * 1.16 * bcvRate()) | number:'1.2-2' }} Bs)</strong>
+                  </div>
+                </div>
               </article>
               }
             </div>
@@ -805,9 +881,9 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                 <button type="button" class="btn-ghost" (click)="goToStep(3)">
                   <span class="btn-content"><i class="bi bi-arrow-left btn-icon" aria-hidden="true"></i>Volver</span>
                 </button>
-                <div class="floating-bar-total">
-                  <small>Total</small>
-                  <strong>{{ orderTotal() | currency:'USD' }}</strong>
+                <div class="floating-bar-total" style="display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2;">
+                  <span style="font-size: 0.72rem; opacity: 0.85;">Subt: {{ orderTotal() | currency:'USD' }} · +IVA: {{ (orderTotal() * 0.16) | currency:'USD' }}</span>
+                  <strong>Total: {{ (orderTotal() * 1.16) | currency:'USD' }}</strong>
                 </div>
                 <button type="button" [disabled]="!lines().length" (click)="openConfirmModal()">
                   <span class="btn-content"><i class="bi bi-arrow-right-circle btn-icon" aria-hidden="true"></i>Continuar</span>
@@ -840,12 +916,28 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                       <small class="line-note-view">Nota: {{ line.note }}</small>
                     }
                   </div>
-                  <span>{{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                  <div style="text-align: right; line-height: 1.2;">
+                    <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ lineTotal(line.productId, line.quantity) | currency:'USD' }}</span>
+                    <div><strong style="color: #059669;">Total: {{ (lineTotal(line.productId, line.quantity) * 1.16) | currency:'USD' }}</strong></div>
+                  </div>
                 </li>
               }
             </ul>
 
-            <p><strong>Total estimado:</strong> {{ orderTotal() | currency:'USD' }}</p>
+            <div style="display: flex; flex-direction: column; gap: 4px; background: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; margin: 0.75rem 0;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>Subtotal:</span>
+                <span>{{ orderTotal() | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>+IVA (16%):</span>
+                <span>{{ (orderTotal() * 0.16) | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+                <span>Total:</span>
+                <span>{{ (orderTotal() * 1.16) | currency:'USD' }} ({{ (orderTotal() * 1.16 * bcvRate()) | number:'1.2-2' }} Bs)</span>
+              </div>
+            </div>
 
             <div class="detail-actions">
               <button type="button" class="btn-ghost" (click)="closeConfirmModal()">
@@ -1018,9 +1110,10 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                       <small class="line-note-view">Nota: {{ item.note }}</small>
                     }
                   </div>
-                  <div class="stack" style="text-align: right; flex-shrink: 0;">
+                  <div class="stack" style="text-align: right; flex-shrink: 0; line-height: 1.2;">
                     <small>{{ item.quantity }} x {{ item.unitPrice | currency:'USD' }}</small>
-                    <span>{{ item.quantity * item.unitPrice | currency:'USD' }}</span>
+                    <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ item.quantity * item.unitPrice | currency:'USD' }}</span>
+                    <strong style="color: #059669; font-size: 0.85rem;">Total: {{ (item.quantity * item.unitPrice * 1.16) | currency:'USD' }}</strong>
                   </div>
                   @if (canDeleteSelectedOrderItem(item)) {
                     <button
@@ -1037,7 +1130,23 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
               }
             </ul>
 
-            <p><strong>Total:</strong> {{ selectedOrderTotal() | currency:'USD' }}</p>
+            <div style="display: flex; flex-direction: column; gap: 4px; background: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; margin: 0.75rem 0; border: 1px solid #e2e8f0;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>Subtotal (sin IVA):</span>
+                <span>{{ selectedOrderTotal() | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>+IVA (16%):</span>
+                <span>{{ (selectedOrderTotal() * 0.16) | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+                <span>Total:</span>
+                <span>{{ (selectedOrderTotal() * 1.16) | currency:'USD' }}</span>
+              </div>
+              <div style="text-align: right; font-size: 0.8rem; color: #6b7280;" [class.muted]="bcvRate() === 0">
+                <span>Total en Bs: {{ (selectedOrderTotal() * 1.16 * bcvRate()) | number:'1.2-2' }} Bs</span>
+              </div>
+            </div>
 
             <div class="detail-actions">
               @if (canDeleteSelectedOrder()) {
@@ -1046,7 +1155,7 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                 </button>
               }
 
-              @if (!isPendingPaymentVerification(selectedOrder()!)) {
+              @if (!isPendingPaymentVerification(selectedOrder()!) && canAddItemsToOrder(selectedOrder()!)) {
                 <button type="button" class="btn-ghost" (click)="openAddItemsToOrder(selectedOrder()!.id)">
                   <span class="btn-content"><i class="bi bi-plus-circle btn-icon" aria-hidden="true"></i>Agregar productos</span>
                 </button>
@@ -1093,8 +1202,12 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                   <strong>{{ selectedOrder()!.items.length }}</strong>
                 </div>
                 <div class="bill-row">
-                  <span>Subtotal</span>
+                  <span>Subtotal (sin IVA)</span>
                   <strong>{{ selectedOrderTotal() | currency:'USD' }}</strong>
+                </div>
+                <div class="bill-row">
+                  <span>IVA (16%)</span>
+                  <strong>{{ selectedOrderTaxAmount() | currency:'USD' }}</strong>
                 </div>
                 <label class="bill-tip-toggle">
                   <input
@@ -1124,12 +1237,10 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                   </div>
                 }
 
-                @if (selectedOrderHasPapaAndSonIva()) {
-                  <div class="bill-row" [class.muted]="bcvRate() === 0">
-                    <span>IVA (16%)</span>
-                    <strong>{{ selectedOrderTaxBs() | number:'1.2-2' }} Bs</strong>
-                  </div>
-                }
+                <div class="bill-row" [class.muted]="bcvRate() === 0">
+                  <span>IVA en Bs (16%)</span>
+                  <strong>{{ selectedOrderTaxBs() | number:'1.2-2' }} Bs</strong>
+                </div>
 
                 <div class="bill-row total">
                   <span>Total en dólares</span>
@@ -3969,9 +4080,24 @@ export class OrdersPageComponent {
     this.lastCreatedId.set('');
   }
 
+  canAddItemsToOrder(order: Order | null | undefined): boolean {
+    if (!order) {
+      return false;
+    }
+    if (order.status === 'ANULADO') {
+      return false;
+    }
+    return !this.state.isOrderDelivered(order);
+  }
+
   openAddItemsToOrder(orderId: string): void {
     const order = this.state.orders().find((item) => item.id === orderId);
     if (!order) {
+      return;
+    }
+
+    if (!this.canAddItemsToOrder(order)) {
+      alert('No se pueden agregar más productos a esta comanda porque sus productos ya fueron entregados.');
       return;
     }
 
@@ -4551,7 +4677,9 @@ export class OrdersPageComponent {
   printInvoiceTicket(order: Order): void {
     const bcv = this.bcvRate();
     const subtotal = this.selectedOrderTotalFor(order);
-    const totalUsd = order.paymentAmountUsd ?? subtotal;
+    const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = order.paymentAmountUsd ?? (subtotal + taxUsd);
+    const taxBs = taxUsd * bcv;
     const totalBs = order.paymentAmountBs ?? (totalUsd * bcv);
 
     this.state.queueConsumptionPrintJob({
@@ -4571,7 +4699,7 @@ export class OrdersPageComponent {
         })),
       subtotalUsd: subtotal,
       tipUsd: 0,
-      taxBs: 0,
+      taxBs: taxBs,
       totalUsd,
       totalBs,
       paymentMethod: order.paymentMethod ?? 'EFECTIVO',
@@ -4609,6 +4737,8 @@ export class OrdersPageComponent {
       itemsRows,
       '</tbody></table>',
       '<hr>',
+      '<p class="right">SUBTOTAL: $' + subtotal.toFixed(2) + '</p>',
+      '<p class="right">+IVA (16%): $' + taxUsd.toFixed(2) + '</p>',
       '<p class="bold right" style="font-size:1.05rem;">TOTAL USD: $' + totalUsd.toFixed(2) + '</p>',
       '<p class="right" style="font-size:0.95rem;">TOTAL BS: Bs. ' + totalBs.toFixed(2) + '</p>',
       '<hr>',
@@ -4637,10 +4767,6 @@ export class OrdersPageComponent {
   }
 
   selectedOrderTaxAmount(): number {
-    if (!this.selectedOrderHasPapaAndSonIva()) {
-      return 0;
-    }
-
     return this.selectedOrderTotal() * PAPA_AND_SON_IVA_RATE;
   }
 
@@ -4732,6 +4858,16 @@ export class OrdersPageComponent {
     this.isSubmittingOrder.set(true);
     try {
       const orderId = this.editingOrderId();
+      if (orderId) {
+        const existing = this.state.orders().find((o) => o.id === orderId);
+        if (!this.canAddItemsToOrder(existing)) {
+          alert('No se pueden agregar más productos: los productos de esta comanda ya fueron entregados.');
+          this.isConfirmModalOpen.set(false);
+          this.isCreateModalOpen.set(false);
+          this.resetDraft();
+          return;
+        }
+      }
       const result = orderId
         ? this.state.appendItemsToOrder(orderId, this.lines())
         : await this.state.createOrder(

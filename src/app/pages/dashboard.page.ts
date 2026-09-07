@@ -26,6 +26,8 @@ interface CashierOrderView {
   localLabel: string;
   order: Order;
   items: OrderItem[];
+  subtotal: number;
+  iva: number;
   total: number;
   itemCount: number;
   isMixed: boolean;
@@ -39,6 +41,8 @@ interface CashierClientView {
   clientName: string;
   orders: Order[];
   orderIds: string[];
+  subtotal: number;
+  iva: number;
   total: number;
   grandTotal: number;
   itemCount: number;
@@ -67,6 +71,10 @@ interface CashierHistorySection {
   localLabel: string;
   orders: CashierOrderView[];
 }
+
+type HistorySortColumn = 'id' | 'date' | 'table' | 'client' | 'local' | 'items' | 'status' | 'total';
+type HistorySortDirection = 'asc' | 'desc';
+type HistoryDatePreset = 'ALL' | 'HOY' | 'AYER' | 'SEMANA' | 'MES' | 'CUSTOM';
 
 interface CashierDetailItemView {
   key: string;
@@ -190,24 +198,87 @@ interface PaymentReceiptSnapshot {
         </div>
 
         @if (viewMode() === 'HISTORIAL') {
-          <div class="range-grid">
-            <label>
-              Desde
-              <input
-                type="datetime-local"
-                [ngModel]="fromDateTime()"
-                (ngModelChange)="fromDateTime.set($event)"
-              />
-            </label>
+          <div class="history-range-card">
+            <div class="history-range-presets">
+              <span class="range-presets-label">
+                <i class="bi bi-calendar-event"></i> Período:
+              </span>
+              <div class="preset-chips">
+                <button
+                  type="button"
+                  class="history-preset-chip"
+                  [class.active]="historyDatePreset() === 'ALL'"
+                  (click)="setHistoryDatePreset('ALL')"
+                >
+                  Todo
+                </button>
+                <button
+                  type="button"
+                  class="history-preset-chip"
+                  [class.active]="historyDatePreset() === 'HOY'"
+                  (click)="setHistoryDatePreset('HOY')"
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  class="history-preset-chip"
+                  [class.active]="historyDatePreset() === 'AYER'"
+                  (click)="setHistoryDatePreset('AYER')"
+                >
+                  Ayer
+                </button>
+                <button
+                  type="button"
+                  class="history-preset-chip"
+                  [class.active]="historyDatePreset() === 'SEMANA'"
+                  (click)="setHistoryDatePreset('SEMANA')"
+                >
+                  Últimos 7 días
+                </button>
+                <button
+                  type="button"
+                  class="history-preset-chip"
+                  [class.active]="historyDatePreset() === 'MES'"
+                  (click)="setHistoryDatePreset('MES')"
+                >
+                  Este Mes
+                </button>
+              </div>
+            </div>
 
-            <label>
-              Hasta
-              <input
-                type="datetime-local"
-                [ngModel]="toDateTime()"
-                (ngModelChange)="toDateTime.set($event)"
-              />
-            </label>
+            <div class="history-range-inputs">
+              <label class="range-input-group">
+                <span class="range-label-text">Desde</span>
+                <input
+                  type="datetime-local"
+                  class="history-datetime-input"
+                  [ngModel]="fromDateTime()"
+                  (ngModelChange)="onCustomDateChange('from', $event)"
+                />
+              </label>
+
+              <label class="range-input-group">
+                <span class="range-label-text">Hasta</span>
+                <input
+                  type="datetime-local"
+                  class="history-datetime-input"
+                  [ngModel]="toDateTime()"
+                  (ngModelChange)="onCustomDateChange('to', $event)"
+                />
+              </label>
+
+              @if (fromDateTime() || toDateTime()) {
+                <button
+                  type="button"
+                  class="btn-ghost btn-range-reset"
+                  title="Limpiar rango de fechas"
+                  (click)="setHistoryDatePreset('ALL')"
+                >
+                  <i class="bi bi-x-circle"></i> Limpiar
+                </button>
+              }
+            </div>
           </div>
         }
       </article>
@@ -344,53 +415,200 @@ interface PaymentReceiptSnapshot {
             </section>
           } @else {
             <section class="cashier-board-panel history-board-panel">
-              <ul class="list history-list history-list--board">
-                @if (isDataLoading() && !historyViews().length) {
-                  <li class="state-card">
-                    <span class="state-spinner" aria-hidden="true"></span>
-                    <strong>Cargando historial...</strong>
-                  </li>
-                } @else if (dataError() && !historyViews().length) {
-                  <li class="state-card">
-                    <strong>{{ dataError() }}</strong>
-                    <div class="state-actions-row">
-                      <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                        Reintentar
-                      </button>
-                      <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
-                        <i class="bi bi-x-circle" aria-hidden="true"></i>
-                        Cancelar
-                      </button>
-                    </div>
-                  </li>
-                } @else {
-                @for (view of historyViews(); track view.localId + view.order.id) {
-                  <li
-                    class="clickable-row history-row-card"
-                    [class.selected]="isSelectedHistoryView(view)"
-                    (click)="openHistoryDetail(view.order.id, view.localId)"
-                  >
-                    <div>
-                      <strong>{{ view.order.clientName }}</strong>
-                      <small>
-                        {{ view.localLabel }} · Mesa {{ tableLabel(view.order) }} · {{ view.itemCount }} items
-                      </small>
+              @if (isDataLoading() && !sortedHistoryViews().length) {
+                <div class="state-card">
+                  <span class="state-spinner" aria-hidden="true"></span>
+                  <strong>Cargando historial...</strong>
+                </div>
+              } @else if (dataError() && !sortedHistoryViews().length) {
+                <div class="state-card">
+                  <strong>{{ dataError() }}</strong>
+                  <div class="state-actions-row">
+                    <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                      <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                      Reintentar
+                    </button>
+                    <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                      <i class="bi bi-x-circle" aria-hidden="true"></i>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <div class="history-table-wrapper">
+                  <div class="history-table-scroll">
+                    <table class="history-table">
+                      <thead>
+                        <tr>
+                          <th class="sortable-th" (click)="toggleHistorySort('id')" title="Ordenar por # Comanda">
+                            <div class="th-content">
+                              <span># Comanda</span>
+                              <i class="bi" [class]="getSortIcon('id')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th" (click)="toggleHistorySort('date')" title="Ordenar por Fecha y Hora">
+                            <div class="th-content">
+                              <span>Fecha y Hora</span>
+                              <i class="bi" [class]="getSortIcon('date')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th" (click)="toggleHistorySort('table')" title="Ordenar por Mesa">
+                            <div class="th-content">
+                              <span>Mesa</span>
+                              <i class="bi" [class]="getSortIcon('table')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th" (click)="toggleHistorySort('client')" title="Ordenar por Cliente">
+                            <div class="th-content">
+                              <span>Cliente</span>
+                              <i class="bi" [class]="getSortIcon('client')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th" (click)="toggleHistorySort('local')" title="Ordenar por Local">
+                            <div class="th-content">
+                              <span>Local</span>
+                              <i class="bi" [class]="getSortIcon('local')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th text-center" (click)="toggleHistorySort('items')" title="Ordenar por Items">
+                            <div class="th-content th-content-center">
+                              <span>Items</span>
+                              <i class="bi" [class]="getSortIcon('items')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th" (click)="toggleHistorySort('status')" title="Ordenar por Estado">
+                            <div class="th-content">
+                              <span>Estado</span>
+                              <i class="bi" [class]="getSortIcon('status')"></i>
+                            </div>
+                          </th>
+                          <th class="sortable-th text-end" (click)="toggleHistorySort('total')" title="Ordenar por Total">
+                            <div class="th-content th-content-end">
+                              <span>Total</span>
+                              <i class="bi" [class]="getSortIcon('total')"></i>
+                            </div>
+                          </th>
+                          <th class="text-center actions-th">
+                            <span>Acciones</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (view of paginatedHistoryViews(); track view.localId + view.order.id) {
+                          <tr
+                            class="history-table-row"
+                            [class.selected]="isSelectedHistoryView(view)"
+                            (click)="openHistoryDetail(view.order.id, view.localId)"
+                          >
+                            <td class="cell-id">
+                              <span class="order-id-badge" [title]="view.order.id">#{{ shortOrderId(view.order.id) }}</span>
+                            </td>
+                            <td class="cell-date">
+                              <div class="date-stacked">
+                                <span class="primary-date">{{ (view.order.closedAt || view.order.createdAt) | date:'dd/MM/yyyy' }}</span>
+                                <span class="sub-time">{{ (view.order.closedAt || view.order.createdAt) | date:'hh:mm a' }}</span>
+                              </div>
+                            </td>
+                            <td class="cell-table">
+                              <span class="table-chip">Mesa {{ tableLabel(view.order) }}</span>
+                            </td>
+                            <td class="cell-client">
+                              <div class="client-stacked">
+                                <strong class="client-name">{{ view.order.clientName || 'Sin nombre' }}</strong>
+                                @if (view.order.clientDocumentId) {
+                                  <small class="client-doc">CI/RIF: {{ view.order.clientDocumentId }}</small>
+                                }
+                              </div>
+                            </td>
+                            <td class="cell-local">
+                              <span class="local-tag" [class.local-lagos]="view.localId === 'LAGOS'" [class.local-papayson]="view.localId === 'PAPA_Y_SON'">
+                                {{ view.localLabel }}
+                              </span>
+                            </td>
+                            <td class="cell-items text-center">
+                              <span class="items-badge">{{ view.itemCount }}</span>
+                            </td>
+                            <td class="cell-status">
+                              <span class="status-pill" [class]="'status-pill ' + orderStatusClass(view.order.status)">
+                                {{ orderStatusLabel(view.order.status) }}
+                              </span>
+                            </td>
+                            <td class="cell-total text-end">
+                              <div class="total-stacked">
+                                <small style="font-size: 0.74rem; color: #64748b;">Subt: {{ view.subtotal | currency:'USD' }}</small>
+                                <small style="font-size: 0.74rem; color: #64748b;">+IVA (16%): {{ view.iva | currency:'USD' }}</small>
+                                <strong class="usd-amount">{{ view.total | currency:'USD' }}</strong>
+                                <small class="bs-amount">Bs. {{ (view.total * bcvRate()) | number:'1.2-2' }}</small>
+                              </div>
+                            </td>
+                            <td class="cell-actions text-center" (click)="$event.stopPropagation()">
+                              <button
+                                type="button"
+                                class="btn-table-action-view"
+                                title="Ver detalles de la comanda"
+                                (click)="openHistoryDetail(view.order.id, view.localId)"
+                              >
+                                <i class="bi bi-eye"></i>
+                                <span>Ver</span>
+                              </button>
+                            </td>
+                          </tr>
+                        } @empty {
+                          <tr>
+                            <td colspan="9" class="empty-history-cell">
+                              <div class="empty-state-box">
+                                <i class="bi bi-inbox"></i>
+                                <p>Sin historial para el rango y filtros seleccionados.</p>
+                              </div>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Pagination Footer (15 por pagina) -->
+                  <div class="history-pagination-footer">
+                    <div class="pagination-info">
+                      @if (sortedHistoryViews().length > 0) {
+                        <span>
+                          Mostrando <strong>{{ historyStartIndex() }} - {{ historyEndIndex() }}</strong> de <strong>{{ sortedHistoryViews().length }}</strong> comandas
+                        </span>
+                      } @else {
+                        <span>0 comandas</span>
+                      }
                     </div>
 
-                    <div class="align-end">
-                      <span class="status-pill" [class]="'status-pill ' + orderStatusClass(view.order.status)">
-                        {{ orderStatusLabel(view.order.status) }}
-                      </span>
-                      <strong>{{ view.total | currency:'USD' }}</strong>
-                      <small>{{ (view.order.closedAt || view.order.createdAt) | date:'short' }}</small>
+                    <div class="pagination-controls">
+                      <button
+                        type="button"
+                        class="btn-page"
+                        [disabled]="historyTableCurrentPage() <= 1"
+                        (click)="goToHistoryTablePage(historyTableCurrentPage() - 1)"
+                        title="Página anterior"
+                      >
+                        <i class="bi bi-chevron-left"></i>
+                        <span>Anterior</span>
+                      </button>
+
+                      <div class="page-indicator">
+                        Página <strong>{{ historyTableCurrentPage() }}</strong> de <strong>{{ historyTableTotalPages() }}</strong>
+                      </div>
+
+                      <button
+                        type="button"
+                        class="btn-page"
+                        [disabled]="historyTableCurrentPage() >= historyTableTotalPages()"
+                        (click)="goToHistoryTablePage(historyTableCurrentPage() + 1)"
+                        title="Página siguiente"
+                      >
+                        <span>Siguiente</span>
+                        <i class="bi bi-chevron-right"></i>
+                      </button>
                     </div>
-                  </li>
-                } @empty {
-                  <li>Sin historial para el rango y filtros seleccionados.</li>
-                }
-                }
-              </ul>
+                  </div>
+                </div>
+              }
             </section>
           }
         </div>
@@ -429,7 +647,11 @@ interface PaymentReceiptSnapshot {
                           <span class="status-pill" [class]="'status-pill ' + cashierStatusClass(view.orders)">
                             {{ cashierStatusLabel(view.orders) }}
                           </span>
-                          <strong>{{ view.total | currency:'USD' }}</strong>
+                          <div style="text-align: right; display: flex; flex-direction: column; gap: 0.1rem;">
+                            <small style="color: #64748b; font-size: 0.75rem;">Subt: {{ view.subtotal | currency:'USD' }}</small>
+                            <small style="color: #64748b; font-size: 0.75rem;">+IVA: {{ view.iva | currency:'USD' }}</small>
+                            <strong style="color: #0f172a; font-size: 0.95rem;">Total: {{ view.total | currency:'USD' }}</strong>
+                          </div>
                         </div>
                       </button>
                     }
@@ -503,12 +725,10 @@ interface PaymentReceiptSnapshot {
                 <strong>{{ selectedDetailTip() | currency:'USD' }}</strong>
               </div>
               }
-              @if (selectedDetailAppliesPapaAndSonIva()) {
               <div class="cashier-side-total-row" [class.muted]="bcvRate() === 0">
                 <span>IVA (16%)</span>
-                <strong>{{ selectedDetailTaxBs() | number:'1.2-2' }} Bs</strong>
+                <strong>{{ selectedDetailTax() | currency:'USD' }} ({{ selectedDetailTaxBs() | number:'1.2-2' }} Bs)</strong>
               </div>
-              }
               <div class="cashier-side-total-row total">
                 <span>Total</span>
                 <strong>{{ selectedDetailTotal() | currency:'USD' }}</strong>
@@ -579,12 +799,10 @@ interface PaymentReceiptSnapshot {
                 <span>Subtotal</span>
                 <strong>{{ selectedDetailSubtotal() | currency:'USD' }}</strong>
               </div>
-              @if (selectedDetailAppliesPapaAndSonIva()) {
               <div>
                 <span>IVA (16%)</span>
-                <strong>{{ selectedDetailTaxBs() | number:'1.2-2' }} Bs</strong>
+                <strong>{{ selectedDetailTax() | currency:'USD' }} ({{ selectedDetailTaxBs() | number:'1.2-2' }} Bs)</strong>
               </div>
-              }
               <div>
                 <span>Total USD</span>
                 <strong>{{ selectedDetailTotal() | currency:'USD' }}</strong>
@@ -713,12 +931,10 @@ interface PaymentReceiptSnapshot {
                 <strong>{{ pendingPaymentVerificationTipUsd(currentPendingPaymentVerification()!) | currency:'USD' }}</strong>
               </div>
               }
-              @if (pendingPaymentVerificationTaxBs(currentPendingPaymentVerification()!) > 0) {
               <div class="payment-verification-row" [class.muted]="bcvRate() === 0">
                 <span>IVA (16%)</span>
-                <strong>{{ pendingPaymentVerificationTaxBs(currentPendingPaymentVerification()!) | number:'1.2-2' }} Bs</strong>
+                <strong>{{ pendingPaymentVerificationTaxUsd(currentPendingPaymentVerification()!) | currency:'USD' }} ({{ pendingPaymentVerificationTaxBs(currentPendingPaymentVerification()!) | number:'1.2-2' }} Bs)</strong>
               </div>
-              }
               <div class="payment-verification-row">
                 <span>Total USD</span>
                 <strong>{{ pendingPaymentVerificationTotalUsd(currentPendingPaymentVerification()!) | currency:'USD' }}</strong>
@@ -2086,6 +2302,459 @@ interface PaymentReceiptSnapshot {
         display: grid;
         justify-content: stretch;
       }
+
+      .history-range-card {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .history-range-inputs {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .history-pagination-footer {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+
+    /* Historial Range & Filter Card */
+    .history-range-card {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.9rem 1.1rem;
+      background: #f8faff;
+      border: 1px solid #dce4f7;
+      border-radius: 0.85rem;
+      margin-top: 0.85rem;
+    }
+
+    .history-range-presets {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+    }
+
+    .range-presets-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #4b5563;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .history-preset-chip {
+      min-height: 32px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #4b5563;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .history-preset-chip:hover {
+      background: #f3f4f6;
+      border-color: #9ca3af;
+      color: #1f2937;
+    }
+
+    .history-preset-chip.active {
+      background: #1e3a8a;
+      border-color: #1e3a8a;
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .history-range-inputs {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .range-input-group {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .range-label-text {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #6b7280;
+    }
+
+    .history-datetime-input {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.82rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      background: #ffffff;
+      color: #1f2937;
+      outline: none;
+      min-height: 34px;
+    }
+
+    .history-datetime-input:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    }
+
+    .btn-range-reset {
+      min-height: 34px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.8rem;
+      color: #dc2626;
+      border-color: #fca5a5;
+      background: #fff5f5;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .btn-range-reset:hover {
+      background: #fee2e2;
+      border-color: #ef4444;
+      color: #b91c1c;
+    }
+
+    /* History Table */
+    .history-table-wrapper {
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.85rem;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+      overflow: hidden;
+    }
+
+    .history-table-scroll {
+      overflow-x: auto;
+      width: 100%;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+
+    .history-table thead {
+      background: #f9fafb;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .history-table th {
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #4b5563;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    .sortable-th {
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.15s ease;
+    }
+
+    .sortable-th:hover {
+      background-color: #f3f4f6;
+      color: #111827;
+    }
+
+    .th-content {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .th-content-center {
+      justify-content: center;
+      width: 100%;
+    }
+
+    .th-content-end {
+      justify-content: flex-end;
+      width: 100%;
+    }
+
+    .sort-inactive {
+      color: #9ca3af;
+      font-size: 0.75rem;
+      opacity: 0.6;
+    }
+
+    .sort-active {
+      color: #1e3a8a;
+      font-size: 1rem;
+      font-weight: 900;
+    }
+
+    .history-table tbody tr.history-table-row {
+      border-bottom: 1px solid #f3f4f6;
+      cursor: pointer;
+      transition: background-color 0.15s ease, transform 0.05s ease;
+    }
+
+    .history-table tbody tr.history-table-row:hover {
+      background-color: #f8faff;
+    }
+
+    .history-table tbody tr.history-table-row.selected {
+      background-color: #fefce8;
+      box-shadow: inset 3px 0 0 #eab308;
+    }
+
+    .history-table td {
+      padding: 0.8rem 1rem;
+      vertical-align: middle;
+      color: #374151;
+    }
+
+    .order-id-badge {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      font-size: 0.82rem;
+      background: #eff6ff;
+      color: #1d4ed8;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.35rem;
+      border: 1px solid #bfdbfe;
+    }
+
+    .date-stacked {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.25;
+    }
+
+    .primary-date {
+      font-weight: 600;
+      color: #1f2937;
+      font-size: 0.85rem;
+    }
+
+    .sub-time {
+      font-size: 0.76rem;
+      color: #6b7280;
+    }
+
+    .table-chip {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      background: #f3f4f6;
+      color: #1f2937;
+      border-radius: 0.375rem;
+      font-weight: 700;
+      font-size: 0.82rem;
+      border: 1px solid #e5e7eb;
+    }
+
+    .client-stacked {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
+    .client-name {
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .client-doc {
+      font-size: 0.76rem;
+      color: #6b7280;
+    }
+
+    .local-tag {
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 0.375rem;
+      display: inline-block;
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .local-lagos {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+
+    .local-papayson {
+      background: #fff7ed;
+      color: #9a3412;
+      border: 1px solid #fed7aa;
+    }
+
+    .items-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      padding: 0 0.4rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #1f2937;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .total-stacked {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      line-height: 1.25;
+    }
+
+    .usd-amount {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #111827;
+    }
+
+    .bs-amount {
+      font-size: 0.76rem;
+      color: #6b7280;
+      font-weight: 600;
+    }
+
+    .btn-table-action-view {
+      min-height: 32px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      border-radius: 0.45rem;
+      background: #1e3a8a;
+      color: #ffffff;
+      border: 1px solid #1e3a8a;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      transition: all 0.15s ease;
+    }
+
+    .btn-table-action-view:hover {
+      background: #172554;
+      border-color: #172554;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .empty-history-cell {
+      text-align: center;
+      padding: 3rem 1rem !important;
+    }
+
+    .empty-state-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+      color: #9ca3af;
+    }
+
+    .empty-state-box i {
+      font-size: 2.2rem;
+    }
+
+    .empty-state-box p {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #6b7280;
+    }
+
+    /* History Pagination Footer */
+    .history-pagination-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1.2rem;
+      background: #fafafa;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .pagination-info {
+      font-size: 0.84rem;
+      color: #6b7280;
+    }
+
+    .pagination-info strong {
+      color: #1f2937;
+    }
+
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn-page {
+      min-height: 34px;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 0.45rem;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #374151;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-page:hover:not(:disabled) {
+      background: #f3f4f6;
+      border-color: #9ca3af;
+      color: #111827;
+    }
+
+    .btn-page:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      background: #f9fafb;
+      border-color: #e5e7eb;
+      color: #9ca3af;
+    }
+
+    .page-indicator {
+      font-size: 0.84rem;
+      color: #4b5563;
+      white-space: nowrap;
+    }
+
+    .page-indicator strong {
+      color: #111827;
     }
   `
 })
@@ -2111,6 +2780,11 @@ export class DashboardPageComponent {
   });
   readonly fromDateTime = signal('');
   readonly toDateTime = signal('');
+  readonly historySortColumn = signal<HistorySortColumn>('date');
+  readonly historySortDirection = signal<HistorySortDirection>('desc');
+  readonly historyTablePageSize = signal<number>(15);
+  readonly historyTableCurrentPage = signal<number>(1);
+  readonly historyDatePreset = signal<HistoryDatePreset>('ALL');
   readonly selectedPapaAndSonTableNumber = signal<number | null>(null);
   readonly selectedClientKey = signal<string | null>(null);
   readonly selectedOrderId = signal<string | null>(null);
@@ -2246,12 +2920,17 @@ export class DashboardPageComponent {
 
       return localIds.map((localId) => {
         const items = order.items.filter((item) => item.restaurantId === localId);
+        const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+        const iva = subtotal * PAPA_AND_SON_IVA_RATE;
+        const total = subtotal + iva;
         return {
           localId,
           localLabel: this.localLabel(localId),
           order,
           items,
-          total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+          subtotal,
+          iva,
+          total,
           itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
           isMixed: localIds.length > 1
         };
@@ -2317,14 +2996,19 @@ export class DashboardPageComponent {
         }
 
         const localItems = payableItems.filter((item) => item.restaurantId === localId);
+        const subtotal = localItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+        const iva = subtotal * PAPA_AND_SON_IVA_RATE;
+        const total = subtotal + iva;
         const key = `${localId}::${documentId || order.id}`;
         const existing = groupedClients.get(key);
 
         if (existing) {
           existing.orders = [...existing.orders, order];
           existing.orderIds = [...existing.orderIds, order.id];
-          existing.total += localItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-          existing.grandTotal += orderPayableTotal;
+          existing.subtotal += subtotal;
+          existing.iva += iva;
+          existing.total += total;
+          existing.grandTotal += orderPayableTotal * (1 + PAPA_AND_SON_IVA_RATE);
           existing.itemCount += localItems.reduce((sum, item) => sum + item.quantity, 0);
           existing.orderCount += 1;
           existing.isMixed = existing.isMixed || orderLocalIds.length > 1;
@@ -2342,8 +3026,10 @@ export class DashboardPageComponent {
           clientName: order.clientName,
           orders: [order],
           orderIds: [order.id],
-          total: localItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-          grandTotal: orderPayableTotal,
+          subtotal,
+          iva,
+          total,
+          grandTotal: orderPayableTotal * (1 + PAPA_AND_SON_IVA_RATE),
           itemCount: localItems.reduce((sum, item) => sum + item.quantity, 0),
           orderCount: 1,
           isMixed: orderLocalIds.length > 1,
@@ -2373,6 +3059,91 @@ export class DashboardPageComponent {
         return rightTime - leftTime;
       })
   );
+
+  readonly sortedHistoryViews = computed(() => {
+    const list = [...this.historyViews()];
+    const col = this.historySortColumn();
+    const dir = this.historySortDirection() === 'asc' ? 1 : -1;
+
+    return list.sort((a, b) => {
+      let comparison = 0;
+      switch (col) {
+        case 'id': {
+          const idA = a.order.id || '';
+          const idB = b.order.id || '';
+          comparison = idA.localeCompare(idB);
+          break;
+        }
+        case 'date': {
+          const dateA = new Date(a.order.closedAt || a.order.createdAt).getTime();
+          const dateB = new Date(b.order.closedAt || b.order.createdAt).getTime();
+          comparison = dateA - dateB;
+          break;
+        }
+        case 'table': {
+          const tableA = this.tableLabel(a.order);
+          const tableB = this.tableLabel(b.order);
+          comparison = tableA.localeCompare(tableB, undefined, { numeric: true });
+          break;
+        }
+        case 'client': {
+          const clientA = a.order.clientName || '';
+          const clientB = b.order.clientName || '';
+          comparison = clientA.localeCompare(clientB);
+          break;
+        }
+        case 'local': {
+          const localA = a.localLabel || '';
+          const localB = b.localLabel || '';
+          comparison = localA.localeCompare(localB);
+          break;
+        }
+        case 'items': {
+          comparison = a.itemCount - b.itemCount;
+          break;
+        }
+        case 'status': {
+          const statusA = a.order.status || '';
+          const statusB = b.order.status || '';
+          comparison = statusA.localeCompare(statusB);
+          break;
+        }
+        case 'total': {
+          comparison = a.total - b.total;
+          break;
+        }
+      }
+      return comparison * dir;
+    });
+  });
+
+  readonly historyTableTotalPages = computed(() => {
+    const total = this.sortedHistoryViews().length;
+    return Math.max(1, Math.ceil(total / this.historyTablePageSize()));
+  });
+
+  readonly paginatedHistoryViews = computed(() => {
+    const sorted = this.sortedHistoryViews();
+    const size = this.historyTablePageSize();
+    const totalPages = this.historyTableTotalPages();
+    const currentPage = Math.min(Math.max(1, this.historyTableCurrentPage()), totalPages);
+    const start = (currentPage - 1) * size;
+    return sorted.slice(start, start + size);
+  });
+
+  readonly historyStartIndex = computed(() => {
+    if (this.sortedHistoryViews().length === 0) return 0;
+    const totalPages = this.historyTableTotalPages();
+    const currentPage = Math.min(Math.max(1, this.historyTableCurrentPage()), totalPages);
+    return (currentPage - 1) * this.historyTablePageSize() + 1;
+  });
+
+  readonly historyEndIndex = computed(() => {
+    const total = this.sortedHistoryViews().length;
+    const totalPages = this.historyTableTotalPages();
+    const currentPage = Math.min(Math.max(1, this.historyTableCurrentPage()), totalPages);
+    return Math.min(currentPage * this.historyTablePageSize(), total);
+  });
 
   readonly activeSections = computed<CashierClientSection[]>(() =>
     this.visibleRestaurantIds().map((localId) => ({
@@ -2849,6 +3620,84 @@ export class DashboardPageComponent {
     return orders.slice(start, start + this.pageSize);
   }
 
+  toggleHistorySort(column: HistorySortColumn): void {
+    if (this.historySortColumn() === column) {
+      this.historySortDirection.update((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      this.historySortColumn.set(column);
+      this.historySortDirection.set(column === 'date' ? 'desc' : 'asc');
+    }
+    this.historyTableCurrentPage.set(1);
+  }
+
+  getSortIcon(column: HistorySortColumn): string {
+    if (this.historySortColumn() !== column) {
+      return 'bi-arrow-down-up sort-inactive';
+    }
+    return this.historySortDirection() === 'asc' ? 'bi-arrow-up-short sort-active' : 'bi-arrow-down-short sort-active';
+  }
+
+  goToHistoryTablePage(page: number): void {
+    const total = this.historyTableTotalPages();
+    if (page >= 1 && page <= total) {
+      this.historyTableCurrentPage.set(page);
+    }
+  }
+
+  shortOrderId(id: string): string {
+    if (!id) return '';
+    return id.length > 10 ? id.slice(-8).toUpperCase() : id.toUpperCase();
+  }
+
+  private formatDateTimeLocal(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  setHistoryDatePreset(preset: 'ALL' | 'HOY' | 'AYER' | 'SEMANA' | 'MES'): void {
+    this.historyDatePreset.set(preset);
+    this.historyTableCurrentPage.set(1);
+
+    if (preset === 'ALL') {
+      this.fromDateTime.set('');
+      this.toDateTime.set('');
+      return;
+    }
+
+    const now = new Date();
+    if (preset === 'HOY') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      this.fromDateTime.set(this.formatDateTimeLocal(start));
+      this.toDateTime.set(this.formatDateTimeLocal(end));
+    } else if (preset === 'AYER') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
+      this.fromDateTime.set(this.formatDateTimeLocal(start));
+      this.toDateTime.set(this.formatDateTimeLocal(end));
+    } else if (preset === 'SEMANA') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      this.fromDateTime.set(this.formatDateTimeLocal(start));
+      this.toDateTime.set(this.formatDateTimeLocal(end));
+    } else if (preset === 'MES') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      this.fromDateTime.set(this.formatDateTimeLocal(start));
+      this.toDateTime.set(this.formatDateTimeLocal(end));
+    }
+  }
+
+  onCustomDateChange(field: 'from' | 'to', value: string): void {
+    if (field === 'from') {
+      this.fromDateTime.set(value);
+    } else {
+      this.toDateTime.set(value);
+    }
+    this.historyDatePreset.set('CUSTOM');
+    this.historyTableCurrentPage.set(1);
+  }
+
   clientTables(view: CashierClientView): string {
     return [...new Set(view.orders.map((order) => this.tableLabel(order)))].join(', ');
   }
@@ -2976,10 +3825,6 @@ export class DashboardPageComponent {
   }
 
   pendingPaymentVerificationTaxUsd(view: CashierOrderView): number {
-    if (!view.order.items.some((item) => item.restaurantId === 'PAPA_Y_SON')) {
-      return 0;
-    }
-
     return this.orderTotal(view.order) * PAPA_AND_SON_IVA_RATE;
   }
 
@@ -3072,8 +3917,7 @@ export class DashboardPageComponent {
       : orders.flatMap((order) => order.items);
 
     const subtotalUsd = allItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const appliesPapaAndSonIva = allItems.some((item) => item.restaurantId === 'PAPA_Y_SON');
-    const taxUsd = appliesPapaAndSonIva ? subtotalUsd * PAPA_AND_SON_IVA_RATE : 0;
+    const taxUsd = subtotalUsd * PAPA_AND_SON_IVA_RATE;
     const storedTotalUsd =
       !onlyUnpaid && orders.length === 1 && typeof orders[0].paymentAmountUsd === 'number'
         ? orders[0].paymentAmountUsd

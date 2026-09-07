@@ -55,7 +55,11 @@ import { RestaurantId } from '../core/models';
               <li>
                 <div>
                   <strong>{{ product.name }}</strong>
-                  <span>{{ product.area }} - {{ product.price | currency:'USD' }}</span>
+                  <div style="display: flex; flex-direction: column; gap: 1px; font-size: 0.82rem; margin-top: 2px;">
+                    <span style="color: #64748b;">{{ product.area }} · Subt: {{ product.price | currency:'USD' }}</span>
+                    <span style="color: #64748b;">+IVA (16%): {{ (product.price * 0.16) | currency:'USD' }}</span>
+                    <strong style="color: #059669; font-size: 0.88rem;">Total: {{ (product.price * 1.16) | currency:'USD' }}</strong>
+                  </div>
                 </div>
                 <button (click)="add(product.id)">Agregar</button>
               </li>
@@ -70,12 +74,39 @@ import { RestaurantId } from '../core/models';
         <h2>Carrito QR</h2>
         <ul class="list">
           @for (item of cart(); track item.productId) {
-            <li>{{ item.productName }} x{{ item.quantity }}</li>
+            <li style="display: flex; justify-content: space-between; align-items: center;">
+              <span>{{ item.productName }} x{{ item.quantity }}</span>
+              <div style="text-align: right; line-height: 1.2;">
+                <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ getCartItemSubtotal(item) | currency:'USD' }}</span>
+                <div><strong style="color: #059669; font-size: 0.82rem;">Total: {{ getCartItemSubtotal(item) * 1.16 | currency:'USD' }}</strong></div>
+              </div>
+            </li>
           } @empty {
             <li>Sin items.</li>
           }
         </ul>
-        <button [disabled]="isSubmitting()" (click)="checkout()">
+
+        @if (cart().length) {
+          <div style="display: flex; flex-direction: column; gap: 4px; padding: 0.75rem; background: #f8fafc; border-radius: 0.5rem; margin: 0.75rem 0; border: 1px solid #e2e8f0;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+              <span>Subtotal (sin IVA):</span>
+              <span>{{ cartSubtotal() | currency:'USD' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+              <span>+IVA (16%):</span>
+              <span>{{ cartIva() | currency:'USD' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+              <span>Total:</span>
+              <span>{{ cartTotal() | currency:'USD' }}</span>
+            </div>
+            <div style="text-align: right; font-size: 0.8rem; color: #6b7280;">
+              <span>Total Bs: {{ cartTotal() * bcvRate() | number:'1.2-2' }} Bs</span>
+            </div>
+          </div>
+        }
+
+        <button [disabled]="isSubmitting() || !cart().length" (click)="checkout()">
           @if (isSubmitting()) {
             Enviando...
           } @else {
@@ -100,6 +131,22 @@ export class QrPageComponent {
   readonly lastOrderId = signal('');
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
   readonly dataError = computed(() => this.state.runtimeDataError());
+  readonly bcvRate = computed(() => this.state.appSettings().bcvRate);
+
+  readonly cartSubtotal = computed(() => {
+    const products = this.state.products();
+    return this.cart().reduce((acc, item) => {
+      const p = products.find((x) => x.id === item.productId);
+      return acc + (p?.price ?? 0) * item.quantity;
+    }, 0);
+  });
+  readonly cartIva = computed(() => this.cartSubtotal() * 0.16);
+  readonly cartTotal = computed(() => this.cartSubtotal() + this.cartIva());
+
+  getCartItemSubtotal(item: { productId: string; quantity: number }): number {
+    const p = this.state.products().find((x) => x.id === item.productId);
+    return (p?.price ?? 0) * item.quantity;
+  }
 
   readonly menuProducts = computed(() =>
     this.state
