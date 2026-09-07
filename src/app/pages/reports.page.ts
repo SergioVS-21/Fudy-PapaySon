@@ -5,6 +5,8 @@ import { AppStateService } from '../core/app-state.service';
 import { Order, OrderStatus, PaymentMethod, RestaurantId } from '../core/models';
 import { formatTableNumberLabel } from '../core/table-layouts';
 
+const PAPA_AND_SON_IVA_RATE = 0.16;
+
 interface ProductSales {
   productId: string;
   name: string;
@@ -305,7 +307,7 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
                     <th style="padding: 0.75rem 0.85rem;">Referencia</th>
                     <th style="padding: 0.75rem 0.85rem; text-align: right; cursor: pointer; user-select: none;" (click)="toggleSort('total')" title="Ordenar por Total USD">
                       <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.35rem;">
-                        <span>Total USD</span>
+                        <span>Total USD (con IVA)</span>
                         <i class="bi" [class.bi-arrow-down-up]="sortColumn() !== 'total'" [class.bi-sort-numeric-down]="sortColumn() === 'total' && sortDirection() === 'asc'" [class.bi-sort-numeric-down-alt]="sortColumn() === 'total' && sortDirection() === 'desc'" style="color: #2563eb;"></i>
                       </div>
                     </th>
@@ -472,8 +474,8 @@ type PaymentMethodFilter = PaymentMethod | 'SIN_REGISTRO';
                   <tr style="border-bottom: 1px solid #ccc; text-align: left;">
                     <th style="padding: 0.5rem;">Producto</th>
                     <th style="padding: 0.5rem; text-align: center;">Cantidad</th>
-                    <th style="padding: 0.5rem; text-align: right;">Precio Uni.</th>
-                    <th style="padding: 0.5rem; text-align: right;">Total</th>
+                    <th style="padding: 0.5rem; text-align: right;">Precio Uni. (con IVA)</th>
+                    <th style="padding: 0.5rem; text-align: right;">Total (con IVA)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1230,7 +1232,8 @@ export class ReportsPageComponent {
         }
 
         const found = map.get(item.productId);
-        const sales = item.quantity * item.unitPrice;
+        const itemPriceWithIva = item.unitPrice * (1 + PAPA_AND_SON_IVA_RATE);
+        const sales = item.quantity * itemPriceWithIva;
         if (found) {
           found.quantity += item.quantity;
           found.sales += sales;
@@ -1312,7 +1315,8 @@ export class ReportsPageComponent {
           sales: 0,
           quantity: 0
         };
-        current.sales += item.quantity * item.unitPrice;
+        const itemPriceWithIva = item.unitPrice * (1 + PAPA_AND_SON_IVA_RATE);
+        current.sales += item.quantity * itemPriceWithIva;
         current.quantity += item.quantity;
         totals.set(categoryId, current);
       });
@@ -1332,7 +1336,8 @@ export class ReportsPageComponent {
 
     this.filteredOrders().forEach((order) => {
       order.items.forEach((item) => {
-        totals.set(item.restaurantId, (totals.get(item.restaurantId) ?? 0) + item.quantity * item.unitPrice);
+        const itemPriceWithIva = item.unitPrice * (1 + PAPA_AND_SON_IVA_RATE);
+        totals.set(item.restaurantId, (totals.get(item.restaurantId) ?? 0) + item.quantity * itemPriceWithIva);
       });
     });
 
@@ -1451,7 +1456,8 @@ export class ReportsPageComponent {
     const subtotal = order.items
       .filter((i) => i.status !== 'ANULADO')
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const totalUsd = order.paymentAmountUsd ?? subtotal;
+    const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = order.paymentAmountUsd ?? (subtotal + taxUsd);
     const totalBs = order.paymentAmountBs ?? (totalUsd * bcv);
 
     this.state.queueConsumptionPrintJob({
@@ -1466,12 +1472,12 @@ export class ReportsPageComponent {
         .map((i) => ({
           productName: i.productName,
           quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          total: i.quantity * i.unitPrice
+          unitPrice: i.unitPrice * (1 + PAPA_AND_SON_IVA_RATE),
+          total: i.quantity * i.unitPrice * (1 + PAPA_AND_SON_IVA_RATE)
         })),
       subtotalUsd: subtotal,
       tipUsd: 0,
-      taxBs: 0,
+      taxBs: taxUsd * bcv,
       totalUsd,
       totalBs,
       paymentMethod: order.paymentMethod ?? 'EFECTIVO',
@@ -1485,7 +1491,11 @@ export class ReportsPageComponent {
 
     const itemsRows = order.items
       .filter((i) => i.status !== 'ANULADO')
-      .map((i) => '<tr><td style="padding:4px 0;">' + i.quantity + 'x ' + i.productName + '</td><td style="text-align:right;padding:4px 0;">$' + (i.quantity * i.unitPrice).toFixed(2) + '</td></tr>')
+      .map((i) => {
+        const itemUnitPriceWithTax = i.unitPrice * (1 + PAPA_AND_SON_IVA_RATE);
+        const itemTotalWithTax = i.quantity * itemUnitPriceWithTax;
+        return '<tr><td style="padding:4px 0;">' + i.quantity + 'x ' + i.productName + '</td><td style="text-align:right;padding:4px 0;">$' + itemTotalWithTax.toFixed(2) + '</td></tr>';
+      })
       .join('');
 
     const formattedDate = new Date(order.closedAt || order.createdAt).toLocaleString('es-VE');
@@ -1509,6 +1519,8 @@ export class ReportsPageComponent {
       itemsRows,
       '</tbody></table>',
       '<hr>',
+      '<p class="right" style="font-size:0.85rem;">SUBTOTAL: $' + subtotal.toFixed(2) + '</p>',
+      '<p class="right" style="font-size:0.85rem;">+ IVA (16%): $' + taxUsd.toFixed(2) + '</p>',
       '<p class="bold right" style="font-size:1.05rem;">TOTAL USD: $' + totalUsd.toFixed(2) + '</p>',
       '<p class="right" style="font-size:0.95rem;">TOTAL BS: Bs. ' + totalBs.toFixed(2) + '</p>',
       '<hr>',
@@ -1661,15 +1673,23 @@ export class ReportsPageComponent {
   }
 
   orderTotal(order: Order): number {
-    return order.items
-      .filter((item) => this.restaurant === 'ALL' || item.restaurantId === this.restaurant)
-      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    if (this.restaurant === 'ALL') {
+      if (order.paymentAmountUsd && order.paymentAmountUsd > 0) {
+        return order.paymentAmountUsd;
+      }
+      const subtotal = order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+      return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
+    }
+
+    const items = order.items.filter((item) => item.restaurantId === this.restaurant);
+    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
   }
 
   private orderTotalByRestaurant(order: Order, restaurantId: RestaurantId): number {
-    return order.items
-      .filter((item) => item.restaurantId === restaurantId)
-      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const items = order.items.filter((item) => item.restaurantId === restaurantId);
+    const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
   }
 
   barPercent(value: number): number {
