@@ -104,6 +104,8 @@ export interface OrderItem {
   note?: string;
   unitPrice: number;
   status: OrderStatus;
+  paid?: boolean;
+  paidAt?: string;
   subItems?: ProductSubItem[];
   mainReady?: boolean;
   createdAt?: string;

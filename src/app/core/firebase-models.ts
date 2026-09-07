@@ -146,6 +146,8 @@ export interface OrderItemDoc {
   note?: string;
   unitPrice: number;
   lineTotal: number;
+  paid?: boolean;
+  paidAt?: FirestoreTimestamp;
   subItems?: import('./models').ProductSubItem[];
   mainReady?: boolean;
   status: OrderStatus;

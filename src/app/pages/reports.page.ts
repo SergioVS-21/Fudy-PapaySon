@@ -1197,7 +1197,8 @@ export class ReportsPageComponent {
     const { from, to } = this.getNormalizedRange();
 
     return this.state.getVisibleOrdersForModule('reportes').filter((order) => {
-      if (order.status !== 'COBRADO') {
+      const isPaid = order.status === 'COBRADO' || !!order.closedAt || (typeof order.paymentAmountUsd === 'number' && order.paymentAmountUsd > 0);
+      if (!isPaid) {
         return false;
       }
 
@@ -1711,59 +1712,104 @@ export class ReportsPageComponent {
     }
 
     const { from, to } = this.getNormalizedRange();
-    const visibleRestaurantIds = this.restaurant === 'ALL' ? this.localKeys() : [this.restaurant];
-    const ordersById = new Map(this.filteredOrders().map((order) => [order.id, order]));
-    const restaurantHeaders = visibleRestaurantIds
-      .map((restaurantId) => `<th>${this.localLabel(restaurantId)}</th>`)
-      .join('');
+    const bcv = this.state.appSettings().bcvRate || 1;
+    const formatBs = (amount: number) =>
+      amount.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
     const content = `
       <html>
         <head>
           <title>Reporte de Ventas</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
-            h1, h2 { margin: 0 0 8px; }
-            p { margin: 0 0 10px; }
-            .meta { margin-bottom: 16px; }
-            .section { margin-top: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background: #f4f4f4; }
+            body { font-family: Arial, sans-serif; margin: 24px; color: #222; font-size: 13px; line-height: 1.4; }
+            h1 { margin: 0 0 10px; font-size: 20px; color: #111; }
+            h2 { margin: 0 0 8px; font-size: 15px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            p { margin: 0 0 6px; }
+            .meta { margin-bottom: 20px; background: #f8fafc; padding: 12px 16px; border-radius: 6px; border: 1px solid #e2e8f0; }
+            .section { margin-top: 22px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+            th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+            th { background: #f1f5f9; font-weight: 700; color: #334155; }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            .summary-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px 16px; border-radius: 6px; }
           </style>
         </head>
         <body>
           <h1>Reporte de Ventas</h1>
           <div class="meta">
-            <p><strong>Local:</strong> ${this.restaurant === 'ALL' ? 'Todos' : this.localLabel(this.restaurant)}</p>
             <p><strong>Desde:</strong> ${from.toLocaleString()}</p>
             <p><strong>Hasta:</strong> ${to.toLocaleString()}</p>
-            <p><strong>Metodos de pago:</strong> ${this.selectedPaymentMethodLabels().join(', ') || 'Ninguno'}</p>
-            <p><strong>Total ventas:</strong> $${this.totalSales().toFixed(2)}</p>
+            <p><strong>Métodos de pago:</strong> ${this.selectedPaymentMethodLabels().join(', ') || 'Todos'}</p>
+            <p><strong>Tasa BCV:</strong> Bs. ${formatBs(bcv)}</p>
+            <p><strong>Total ventas:</strong> $${this.totalSales().toFixed(2)} &nbsp;|&nbsp; <strong style="color: #047857;">Bs. ${formatBs(this.totalSales() * bcv)}</strong></p>
           </div>
 
           <div class="section">
             <h2>Ventas por productos</h2>
             <table>
-              <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio Uni.</th><th>Total</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th class="text-center">Cantidad</th>
+                  <th class="text-right">Precio Uni. ($)</th>
+                  <th class="text-right">Precio Uni. (Bs.)</th>
+                  <th class="text-right">Total ($)</th>
+                  <th class="text-right">Total (Bs.)</th>
+                </tr>
+              </thead>
               <tbody>
                 ${this.productSales()
-                  .map(
-                    (item) =>
-                      `<tr><td>${item.name}</td><td>${item.quantity}</td><td>$${(item.sales / item.quantity).toFixed(2)}</td><td>$${item.sales.toFixed(2)}</td></tr>`
-                  )
+                  .map((item) => {
+                    const unitPrice = item.quantity > 0 ? item.sales / item.quantity : 0;
+                    return `<tr>
+                      <td>${item.name}</td>
+                      <td class="text-center">${item.quantity}</td>
+                      <td class="text-right">$${unitPrice.toFixed(2)}</td>
+                      <td class="text-right">Bs. ${formatBs(unitPrice * bcv)}</td>
+                      <td class="text-right">$${item.sales.toFixed(2)}</td>
+                      <td class="text-right">Bs. ${formatBs(item.sales * bcv)}</td>
+                    </tr>`;
+                  })
                   .join('')}
               </tbody>
             </table>
           </div>
 
-          ${this.restaurant === 'PAPA_Y_SON' ? `
+          ${this.categorySales().length > 0 ? `
           <div class="section">
-            <h2>Artículos consumidos</h2>
+            <h2>Ventas por categorías</h2>
             <table>
-              <thead><tr><th>Artículo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Categoría</th>
+                  <th class="text-center">Cantidad</th>
+                  <th class="text-right">Ventas ($)</th>
+                  <th class="text-right">Ventas (Bs.)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${this.categorySales()
+                  .map((item) => `<tr>
+                    <td>${item.label}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    <td class="text-right">$${item.sales.toFixed(2)}</td>
+                    <td class="text-right">Bs. ${formatBs(item.sales * bcv)}</td>
+                  </tr>`)
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
+          ${this.inventoryArticleSales().length > 0 ? `
+          <div class="section">
+            <h2>Artículos consumidos (Inventario)</h2>
+            <table>
+              <thead><tr><th>Artículo</th><th class="text-center">Cantidad</th><th class="text-center">Unidad</th></tr></thead>
               <tbody>
                 ${this.inventoryArticleSales()
-                  .map((item) => `<tr><td>${item.name}</td><td>${Number(item.quantity).toFixed(3)}</td><td>${item.unit}</td></tr>`)
+                  .map((item) => `<tr><td>${item.name}</td><td class="text-center">${Number(item.quantity).toFixed(3)}</td><td class="text-center">${item.unit}</td></tr>`)
                   .join('')}
               </tbody>
             </table>
@@ -1771,48 +1817,41 @@ export class ReportsPageComponent {
           ` : ''}
 
           <div class="section">
-            <h2>${this.restaurant === 'PAPA_Y_SON' ? 'Ventas por categorías' : 'Ventas por local'}</h2>
-            <table>
-              <thead><tr><th>${this.restaurant === 'PAPA_Y_SON' ? 'Categoría' : 'Local'}</th><th>Ventas</th></tr></thead>
-              <tbody>
-                ${this.restaurant === 'PAPA_Y_SON'
-                  ? this.categorySales()
-                      .map((item) => `<tr><td>${item.label}</td><td>$${item.sales.toFixed(2)}</td></tr>`)
-                      .join('')
-                  : this.localSales()
-                      .map((item) => `<tr><td>${item.label}</td><td>$${item.sales.toFixed(2)}</td></tr>`)
-                      .join('')}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="section">
             <h2>Comandas del periodo</h2>
             <table>
-              <thead><tr><th>Comanda</th><th>Cliente</th><th>Metodo de pago</th><th>Referencia</th><th>Fecha de pago</th>${restaurantHeaders}<th>Monto</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Comanda</th>
+                  <th>Cliente</th>
+                  <th>Método de pago</th>
+                  <th>Referencia</th>
+                  <th>Fecha de pago</th>
+                  <th class="text-right">Monto ($)</th>
+                  <th class="text-right">Monto (Bs.)</th>
+                </tr>
+              </thead>
               <tbody>
                 ${this.reportOrders()
-                  .map((item) => {
-                    const order = ordersById.get(item.id);
-                    const restaurantCells = visibleRestaurantIds
-                      .map((restaurantId) => {
-                        const restaurantTotal = order ? this.orderTotalByRestaurant(order, restaurantId) : 0;
-                        return `<td>$${restaurantTotal.toFixed(2)}</td>`;
-                      })
-                      .join('');
-
-                    return `<tr><td>${item.id}</td><td>${item.clientName}</td><td>${item.paymentMethod}</td><td>${item.paymentReference}</td><td>${new Date(item.paidAt).toLocaleString()}</td>${restaurantCells}<td>$${item.total.toFixed(2)}</td></tr>`;
-                  })
+                  .map((item) => `<tr>
+                    <td>#${item.id}</td>
+                    <td>${item.clientName}</td>
+                    <td>${item.paymentMethod}</td>
+                    <td>${item.paymentReference || '-'}</td>
+                    <td>${new Date(item.paidAt).toLocaleString()}</td>
+                    <td class="text-right">$${item.total.toFixed(2)}</td>
+                    <td class="text-right">Bs. ${formatBs(item.total * bcv)}</td>
+                  </tr>`)
                   .join('')}
               </tbody>
             </table>
           </div>
 
-          <div class="section">
-            <h2>Resumen</h2>
+          <div class="section summary-box">
+            <h2>Resumen General</h2>
             <p><strong>Comandas cobradas:</strong> ${this.filteredOrders().length}</p>
             <p><strong>Items vendidos:</strong> ${this.totalItems()}</p>
-            <p><strong>Ticket promedio:</strong> $${this.averageTicket().toFixed(2)}</p>
+            <p><strong>Ticket promedio:</strong> $${this.averageTicket().toFixed(2)} &nbsp;|&nbsp; <strong>Bs. ${formatBs(this.averageTicket() * bcv)}</strong></p>
+            <p><strong>Total recaudado:</strong> $${this.totalSales().toFixed(2)} &nbsp;|&nbsp; <strong style="color: #047857; font-size: 14px;">Bs. ${formatBs(this.totalSales() * bcv)}</strong></p>
           </div>
         </body>
       </html>

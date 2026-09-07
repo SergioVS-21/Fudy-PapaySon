@@ -633,7 +633,7 @@ export class AppStateService {
 
   appendItemsToOrder(orderId: string, draftItems: DraftItem[]): Order | null {
     const order = this.orders().find((item) => item.id === orderId);
-    if (!order || order.status === 'COBRADO') {
+    if (!order) {
       return null;
     }
 
@@ -682,17 +682,21 @@ export class AppStateService {
           return existingOrder;
         }
 
+        const isPreviouslyCobrado = existingOrder.status === 'COBRADO' || !!existingOrder.closedAt;
+        const existingItems = existingOrder.items.map((it) => ({
+          ...it,
+          paid: it.paid ?? isPreviouslyCobrado
+        }));
+
         return {
           ...existingOrder,
-          status:
-            existingOrder.status === 'LISTO' || existingOrder.status === 'ENTREGADO'
-              ? 'PENDIENTE'
-              : existingOrder.status,
+          status: 'PENDIENTE',
           updatedAt: now,
           items: [
-            ...existingOrder.items,
+            ...existingItems,
             ...items.map((item) => ({
               ...item,
+              paid: false,
               createdAt: now,
               updatedAt: now
             }))
@@ -759,10 +763,51 @@ export class AppStateService {
         });
 
         const hasPending = items.some((item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO');
+        const nextStatus = hasPending ? (order.status === 'COBRADO' ? 'COBRADO' : 'EN_PROCESO') : 'LISTO';
         return {
           ...order,
           items,
-          status: hasPending ? 'EN_PROCESO' : 'LISTO',
+          status: nextStatus,
+          updatedAt: now
+        };
+      })
+    );
+    this.syncOrderById(orderId, { silent: true });
+  }
+
+  markOrderReady(orderId: string, area: AreaId | 'ALL' = 'ALL'): void {
+    const now = new Date().toISOString();
+    this.orders.update((orders) =>
+      orders.map((order) => {
+        if (order.id !== orderId) {
+          return order;
+        }
+
+        const items = order.items.map((item) => {
+          if (area !== 'ALL' && item.area !== area && (!item.subItems || !item.subItems.some((s) => s.area === area))) {
+            return item;
+          }
+
+          const updatedSubItems = item.subItems?.map((sub) =>
+            area === 'ALL' || sub.area === area ? { ...sub, ready: true } : sub
+          );
+          const allSubsReady = !updatedSubItems || updatedSubItems.every((sub) => sub.ready);
+
+          return {
+            ...item,
+            status: (allSubsReady ? 'LISTO' : item.status) as any,
+            mainReady: allSubsReady,
+            subItems: updatedSubItems,
+            updatedAt: now
+          };
+        });
+
+        const hasPending = items.some((item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO');
+        const nextStatus = hasPending ? (order.status === 'COBRADO' ? 'COBRADO' : 'EN_PROCESO') : 'LISTO';
+        return {
+          ...order,
+          items,
+          status: nextStatus,
           updatedAt: now
         };
       })
@@ -892,25 +937,48 @@ export class AppStateService {
     const now = new Date().toISOString();
     const normalizedReference = payment?.paymentReference?.trim();
     this.orders.update((orders) =>
-      orders.map((order) =>
-        uniqueOrderIds.includes(order.id)
-          ? {
-              ...order,
-              status: 'COBRADO',
-              closedAt: now,
-              paymentMethod: payment?.paymentMethod ?? order.paymentMethod,
-              paymentReference: normalizedReference ?? order.paymentReference,
-              paymentAmountUsd: payment?.paymentAmountUsd ?? order.paymentAmountUsd,
-              paymentAmountBs: payment?.paymentAmountBs ?? order.paymentAmountBs,
-              updatedAt: now
-            }
-          : order
-      )
+      orders.map((order) => {
+        if (!uniqueOrderIds.includes(order.id)) {
+          return order;
+        }
+
+        const hadPriorPayment = order.items.some((it) => it.paid);
+        const updatedItems = order.items.map((item) => ({
+          ...item,
+          paid: true,
+          paidAt: item.paidAt || now
+        }));
+
+        const priorAmountUsd = order.paymentAmountUsd || 0;
+        const additionalUsd = payment?.paymentAmountUsd;
+        const totalUsd = typeof additionalUsd === 'number'
+          ? (hadPriorPayment && priorAmountUsd > 0 ? priorAmountUsd + additionalUsd : additionalUsd)
+          : (order.paymentAmountUsd ?? additionalUsd);
+
+        const priorAmountBs = order.paymentAmountBs || 0;
+        const additionalBs = payment?.paymentAmountBs;
+        const totalBs = typeof additionalBs === 'number'
+          ? (hadPriorPayment && priorAmountBs > 0 ? priorAmountBs + additionalBs : additionalBs)
+          : (order.paymentAmountBs ?? additionalBs);
+
+        return {
+          ...order,
+          status: 'COBRADO',
+          closedAt: now,
+          paymentMethod: payment?.paymentMethod ?? order.paymentMethod,
+          paymentReference: normalizedReference ?? order.paymentReference,
+          paymentAmountUsd: totalUsd,
+          paymentAmountBs: totalBs,
+          updatedAt: now,
+          items: updatedItems
+        };
+      })
     );
 
     this.orders()
       .filter((item) => uniqueOrderIds.includes(item.id))
       .forEach((order) => {
+        this.syncOrderById(order.id);
         this.trackSyncOperation(
           () => this.firebaseData.markOrderAsPaid({
             orderId: order.id,
@@ -1436,11 +1504,11 @@ export class AppStateService {
 
   getAreaQueue(area: AreaId, restaurant: RestaurantId | 'ALL') {
     return this.getVisibleOrdersForModule('operacion')
-      .filter((order) => order.status !== 'COBRADO' && order.status !== 'ANULADO')
+      .filter((order) => order.status !== 'ANULADO')
       .map((order) => ({
         ...order,
         items: order.items.filter((item) => {
-          if (item.status === 'ENTREGADO' || item.status === 'COBRADO' || item.status === 'ANULADO') {
+          if (item.status === 'ENTREGADO' || item.status === 'ANULADO') {
             return false;
           }
           if (restaurant !== 'ALL' && item.restaurantId !== restaurant) {
@@ -2234,6 +2302,8 @@ export class AppStateService {
         note: item.note,
         unitPrice: item.unitPrice,
         status: item.status,
+        paid: item.paid ?? (order.status === 'COBRADO' || !!order.closedAt),
+        paidAt: typeof item.paidAt === 'string' ? item.paidAt : ((item.paidAt as any)?.toDate?.()?.toISOString?.() ?? undefined),
         subItems: item.subItems,
         mainReady: item.mainReady,
         createdAt: item.createdAt,
@@ -2820,6 +2890,12 @@ export class AppStateService {
 
     if (item.note) {
       itemDoc.note = item.note;
+    }
+    if (item.paid !== undefined) {
+      itemDoc.paid = item.paid;
+    }
+    if (item.paidAt) {
+      itemDoc.paidAt = item.paidAt;
     }
 
     return Object.fromEntries(

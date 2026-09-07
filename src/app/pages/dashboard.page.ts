@@ -2293,7 +2293,13 @@ export class DashboardPageComponent {
     const groupedClients = new Map<string, CashierClientView>();
 
     this.state.orders().forEach((order) => {
-      if (order.status === 'COBRADO' || order.status === 'ANULADO' || order.paymentVerificationStatus === 'PENDIENTE') {
+      if (order.status === 'ANULADO' || order.paymentVerificationStatus === 'PENDIENTE') {
+        return;
+      }
+
+      // Solo productos pendientes de cobro (no cobrados previamente)
+      const payableItems = order.items.filter((item) => !item.paid);
+      if (!payableItems.length) {
         return;
       }
 
@@ -2302,15 +2308,15 @@ export class DashboardPageComponent {
         return;
       }
 
-      const orderLocalIds = [...new Set(order.items.map((item) => item.restaurantId))];
-      const orderGrandTotal = this.orderTotal(order);
+      const orderLocalIds = [...new Set(payableItems.map((item) => item.restaurantId))];
+      const orderPayableTotal = payableItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
       orderLocalIds.forEach((localId) => {
         if (!this.matchesRestaurant(localId)) {
           return;
         }
 
-        const localItems = order.items.filter((item) => item.restaurantId === localId);
+        const localItems = payableItems.filter((item) => item.restaurantId === localId);
         const key = `${localId}::${documentId || order.id}`;
         const existing = groupedClients.get(key);
 
@@ -2318,7 +2324,7 @@ export class DashboardPageComponent {
           existing.orders = [...existing.orders, order];
           existing.orderIds = [...existing.orderIds, order.id];
           existing.total += localItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-          existing.grandTotal += orderGrandTotal;
+          existing.grandTotal += orderPayableTotal;
           existing.itemCount += localItems.reduce((sum, item) => sum + item.quantity, 0);
           existing.orderCount += 1;
           existing.isMixed = existing.isMixed || orderLocalIds.length > 1;
@@ -2337,7 +2343,7 @@ export class DashboardPageComponent {
           orders: [order],
           orderIds: [order.id],
           total: localItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-          grandTotal: orderGrandTotal,
+          grandTotal: orderPayableTotal,
           itemCount: localItems.reduce((sum, item) => sum + item.quantity, 0),
           orderCount: 1,
           isMixed: orderLocalIds.length > 1,
@@ -2356,7 +2362,7 @@ export class DashboardPageComponent {
     this.localOrderViews()
       .filter(
         (view) =>
-          view.order.status === 'COBRADO' &&
+          (view.order.status === 'COBRADO' || !!view.order.closedAt) &&
           this.matchesRestaurant(view.localId) &&
           this.matchesClientDocument(view.order.clientDocumentId ?? '') &&
           this.isWithinSelectedRange(view.order.closedAt || view.order.createdAt)
@@ -2454,12 +2460,12 @@ export class DashboardPageComponent {
   readonly selectedDetailPaymentSummary = computed<CashierPaymentSummary>(() => {
     const active = this.selectedActiveClientView();
     if (active) {
-      return this.buildPaymentSummary(active.orders);
+      return this.buildPaymentSummary(active.orders, true);
     }
 
     const history = this.selectedHistoryOrderView();
     if (history) {
-      return this.buildPaymentSummary([history.order]);
+      return this.buildPaymentSummary([history.order], false);
     }
 
     return {
@@ -2475,7 +2481,8 @@ export class DashboardPageComponent {
   readonly selectedDetailItems = computed<CashierDetailItemView[]>(() => {
     const active = this.selectedActiveClientView();
     if (active) {
-      return this.buildDetailItems(active.orders.flatMap((order) => order.items));
+      const payableItems = active.orders.flatMap((order) => order.items.filter((item) => !item.paid));
+      return this.buildDetailItems(payableItems);
     }
 
     const history = this.selectedHistoryOrderView();
@@ -2980,8 +2987,9 @@ export class DashboardPageComponent {
     return this.pendingPaymentVerificationTaxUsd(view) * this.bcvRate();
   }
 
-  orderTotal(order: Order): number {
-    return order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  orderTotal(order: Order, onlyUnpaid = false): number {
+    const items = onlyUnpaid ? order.items.filter((item) => !item.paid) : order.items;
+    return items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }
 
   localLabel(localId: RestaurantId): string {
@@ -3047,7 +3055,7 @@ export class DashboardPageComponent {
     return [...groupedItems.values()];
   }
 
-  private buildPaymentSummary(orders: Order[]): CashierPaymentSummary {
+  private buildPaymentSummary(orders: Order[], onlyUnpaid = false): CashierPaymentSummary {
     if (!orders.length) {
       return {
         subtotalUsd: 0,
@@ -3059,14 +3067,21 @@ export class DashboardPageComponent {
       };
     }
 
-    const allItems = orders.flatMap((order) => order.items);
-    const subtotalUsd = orders.reduce((sum, order) => sum + this.orderTotal(order), 0);
+    const allItems = onlyUnpaid
+      ? orders.flatMap((order) => order.items.filter((item) => !item.paid))
+      : orders.flatMap((order) => order.items);
+
+    const subtotalUsd = allItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const appliesPapaAndSonIva = allItems.some((item) => item.restaurantId === 'PAPA_Y_SON');
     const taxUsd = appliesPapaAndSonIva ? subtotalUsd * PAPA_AND_SON_IVA_RATE : 0;
     const storedTotalUsd =
-      orders.length === 1 && typeof orders[0].paymentAmountUsd === 'number' ? orders[0].paymentAmountUsd : undefined;
+      !onlyUnpaid && orders.length === 1 && typeof orders[0].paymentAmountUsd === 'number'
+        ? orders[0].paymentAmountUsd
+        : undefined;
     const storedTotalBs =
-      orders.length === 1 && typeof orders[0].paymentAmountBs === 'number' ? orders[0].paymentAmountBs : undefined;
+      !onlyUnpaid && orders.length === 1 && typeof orders[0].paymentAmountBs === 'number'
+        ? orders[0].paymentAmountBs
+        : undefined;
     const totalUsd = storedTotalUsd ?? subtotalUsd + taxUsd;
     const totalBs = storedTotalBs ?? totalUsd * this.bcvRate();
 
@@ -3095,18 +3110,19 @@ export class DashboardPageComponent {
       return null;
     }
 
-    const allItems = orders.flatMap((order) => order.items);
-    const items = this.buildDetailItems(allItems);
-    const localLabels = [...new Set(allItems.map((item) => this.localLabel(item.restaurantId)))];
+    const payableItems = orders.flatMap((order) => order.items.filter((item) => !item.paid));
+    const targetItems = payableItems.length > 0 ? payableItems : orders.flatMap((order) => order.items);
+    const items = this.buildDetailItems(targetItems);
+    const localLabels = [...new Set(targetItems.map((item) => this.localLabel(item.restaurantId)))];
     const tableLabels = [...new Set(orders.map((order) => this.tableLabel(order)))];
     const uniqueClientNames = [...new Set(orders.map((order) => order.clientName).filter(Boolean))];
     const uniqueDocumentIds = [
       ...new Set(orders.map((order) => order.clientDocumentId).filter((documentId): documentId is string => !!documentId))
     ];
-    const paymentSummary = this.buildPaymentSummary(orders);
+    const paymentSummary = this.buildPaymentSummary(orders, payableItems.length > 0);
 
     return {
-      restaurantIds: [...new Set(allItems.map((item) => item.restaurantId))],
+      restaurantIds: [...new Set(targetItems.map((item) => item.restaurantId))],
       clientName: uniqueClientNames.length === 1 ? uniqueClientNames[0] : `Mesa ${tableLabels.join(', ')}`,
       clientDocumentId: uniqueDocumentIds.length === 1 ? uniqueDocumentIds[0] : 'Multiples cedulas',
       localLabels,

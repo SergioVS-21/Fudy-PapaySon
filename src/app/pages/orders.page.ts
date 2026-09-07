@@ -197,9 +197,15 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <span class="line-status-chip chip-pending">
-                          <i class="bi bi-clock-history" aria-hidden="true"></i> En prep.
-                        </span>
+                        <button
+                          type="button"
+                          class="line-status-chip chip-pending btn-action-ready"
+                          style="cursor: pointer; background: #fef3c7; color: #92400e; border: 1px solid #fde68a;"
+                          title="Hacer clic para marcar producto como LISTO / PREPARADO"
+                          (click)="markItemReadyInOrders($event, order.id, item.id)"
+                        >
+                          <i class="bi bi-clock-history" aria-hidden="true"></i> En prep. (Listo?)
+                        </button>
                       }
                     </li>
                   }
@@ -978,7 +984,11 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                   <div style="flex: 1; min-width: 0;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                       <strong>{{ item.productName }}</strong>
-                      @if (item.status === 'LISTO') {
+                      @if (item.paid) {
+                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                          <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Ya cobrado
+                        </span>
+                      } @else if (item.status === 'LISTO') {
                         <button
                           type="button"
                           style="font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.6rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; border: none; border-radius: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);"
@@ -992,9 +1002,15 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                          <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
-                        </span>
+                        <button
+                          type="button"
+                          class="line-status-chip chip-pending btn-action-ready"
+                          style="font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
+                          title="Hacer clic para marcar como LISTO / PREPARADO"
+                          (click)="markItemReadyInOrders($event, selectedOrder()!.id, item.id)"
+                        >
+                          <i class="bi bi-check-circle" aria-hidden="true"></i> Marcar Listo
+                        </button>
                       }
                     </div>
                     <small>{{ item.restaurantId }} / {{ item.area }}</small>
@@ -1030,15 +1046,21 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
                 </button>
               }
 
-              @if (selectedOrder()!.status !== 'COBRADO' && !isPendingPaymentVerification(selectedOrder()!)) {
+              @if (!isPendingPaymentVerification(selectedOrder()!)) {
                 <button type="button" class="btn-ghost" (click)="openAddItemsToOrder(selectedOrder()!.id)">
                   <span class="btn-content"><i class="bi bi-plus-circle btn-icon" aria-hidden="true"></i>Agregar productos</span>
                 </button>
               }
 
-              @if (selectedOrder()!.status === 'LISTO') {
+              @if (selectedOrder()!.status === 'LISTO' || (!hasPendingItems(selectedOrder()!) && selectedOrder()!.status !== 'ENTREGADO')) {
                 <button type="button" (click)="markDelivered(selectedOrder()!.id)">
                   <span class="btn-content"><i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>Recibido</span>
+                </button>
+              }
+
+              @if (hasPendingItems(selectedOrder()!)) {
+                <button type="button" class="btn-ghost" style="color: #059669; border-color: #6ee7b7;" (click)="markAllReadyInOrders(selectedOrder()!.id)">
+                  <span class="btn-content"><i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>Marcar toda lista</span>
                 </button>
               }
 
@@ -4485,7 +4507,9 @@ export class OrdersPageComponent {
       return 0;
     }
 
-    return order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const unpaidItems = order.items.filter((item) => !item.paid && item.status !== 'ANULADO');
+    const targetItems = unpaidItems.length > 0 ? unpaidItems : order.items.filter((item) => item.status !== 'ANULADO');
+    return targetItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }
 
   getReadyItemsCount(order: Order): number {
@@ -4498,9 +4522,23 @@ export class OrdersPageComponent {
     return order.items.some((item) => item.status === 'LISTO');
   }
 
+  hasPendingItems(order?: Order | null): boolean {
+    if (!order || !order.items) return false;
+    return order.items.some((item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO');
+  }
+
   deliverItem(event: Event, orderId: string, itemId: string): void {
     event.stopPropagation();
     this.state.markItemDelivered(orderId, itemId);
+  }
+
+  markItemReadyInOrders(event: Event, orderId: string, itemId: string): void {
+    event.stopPropagation();
+    this.state.markItemReady(orderId, itemId, 'ALL');
+  }
+
+  markAllReadyInOrders(orderId: string): void {
+    this.state.markOrderReady(orderId, 'ALL');
   }
 
   selectedOrderTotalFor(order: Order): number {
@@ -4672,8 +4710,12 @@ export class OrdersPageComponent {
       return 'POR VERIFICAR';
     }
 
-    if (status === 'LISTO') {
+    if (status === 'LISTO' || (order && !this.hasPendingItems(order) && status !== 'ENTREGADO')) {
       return 'LISTO, RETIRAR';
+    }
+
+    if (order && this.hasReadyItems(order)) {
+      return 'PARCIALMENTE LISTO';
     }
 
     if (status === 'ENTREGADO') {
@@ -4732,7 +4774,7 @@ export class OrdersPageComponent {
         .getVisibleOrdersForModule('comandas')
         .filter(
           (order) =>
-            order.status === 'LISTO'
+            order.status === 'LISTO' || (this.hasReadyItems(order) && !this.hasPendingItems(order))
         )
         .map((order) => order.id)
     );

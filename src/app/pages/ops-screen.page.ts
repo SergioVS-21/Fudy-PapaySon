@@ -70,119 +70,298 @@ interface AreaSection {
       <section class="ops-workspace" [class.detail-open]="!!selectedOrder()">
         <div class="ops-board">
           @if (selectedArea() === 'ALL') {
-            <section class="restaurant-sections">
-              <article class="panel section-panel section-panel--board">
-                <div class="section-head">
-                  <h2>Comanda completa</h2>
-                  <span class="count-pill">{{ allAreaOrders().length }} comandas</span>
-                </div>
+            <div class="chip-group" style="margin-bottom: 0.85rem;">
+              <small>Modo de visualización</small>
+              <div class="chips">
+                <button
+                  type="button"
+                  class="chip"
+                  [class.active]="allAreaViewMode() === 'POR_AREA'"
+                  (click)="allAreaViewMode.set('POR_AREA')"
+                >
+                  <i class="bi bi-columns-gap" aria-hidden="true"></i> Divididas por Pantallas (Áreas)
+                </button>
+                <button
+                  type="button"
+                  class="chip"
+                  [class.active]="allAreaViewMode() === 'COMPLETA'"
+                  (click)="allAreaViewMode.set('COMPLETA')"
+                >
+                  <i class="bi bi-card-checklist" aria-hidden="true"></i> Comanda Completa
+                </button>
+              </div>
+            </div>
 
-                <label class="ops-search-box">
-                  <i class="bi bi-search" aria-hidden="true"></i>
-                  <input
-                    type="text"
-                    [ngModel]="orderSearchQuery()"
-                    (ngModelChange)="orderSearchQuery.set($event || '')"
-                    placeholder="Busqueda"
-                  />
-                </label>
+            @if (allAreaViewMode() === 'POR_AREA') {
+              <section class="restaurant-sections">
+                @for (section of allAreaDivisionSections(); track section.area) {
+                  <article class="panel section-panel section-panel--board">
+                    <div class="section-head">
+                      <h2>{{ section.areaName }}</h2>
+                      <span class="count-pill">{{ section.orders.length }} comandas</span>
+                    </div>
 
-                <div class="orders-cards orders-cards--board">
-                  @if (isDataLoading() && !allAreaOrders().length) {
-                    <article class="state-card">
-                      <span class="state-spinner" aria-hidden="true"></span>
-                      <strong>Cargando comandas...</strong>
-                    </article>
-                  } @else if (dataError() && !allAreaOrders().length) {
-                    <article class="state-card">
-                      <strong>{{ dataError() }}</strong>
-                      <div class="state-actions-row">
-                        <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
-                          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                          Reintentar
-                        </button>
-                        <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
-                          <i class="bi bi-x-circle" aria-hidden="true"></i>
-                          Cancelar
-                        </button>
-                      </div>
-                    </article>
-                  } @else {
-                  @for (order of allAreaOrders(); track order.id) {
-                    <article
-                      class="ops-order-card clickable-card"
-                      [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
-                      (click)="openDetail(order.id)"
-                    >
-                      <div class="ops-order-head">
-                        <div>
-                          @if (order.id.startsWith('PPS')) {
-                            <strong>Mesa {{ tableLabel(order) }}</strong>
-                            <small>
-                              {{ order.items.length }} items
-                              @if (!order.clientName.startsWith('Mesa ')) {
-                                | {{ order.clientName }}
+                    <label class="ops-search-box">
+                      <i class="bi bi-search" aria-hidden="true"></i>
+                      <input
+                        type="text"
+                        [ngModel]="orderSearchQuery()"
+                        (ngModelChange)="orderSearchQuery.set($event || '')"
+                        placeholder="Busqueda"
+                      />
+                    </label>
+
+                    <div class="orders-cards orders-cards--board">
+                      @if (isDataLoading() && !section.orders.length) {
+                        <article class="state-card">
+                          <span class="state-spinner" aria-hidden="true"></span>
+                          <strong>Cargando comandas...</strong>
+                        </article>
+                      } @else if (dataError() && !section.orders.length) {
+                        <article class="state-card">
+                          <strong>{{ dataError() }}</strong>
+                          <div class="state-actions-row">
+                            <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                              Reintentar
+                            </button>
+                            <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                              <i class="bi bi-x-circle" aria-hidden="true"></i>
+                              Cancelar
+                            </button>
+                          </div>
+                        </article>
+                      } @else {
+                      @for (order of section.orders; track order.id) {
+                        <article
+                          class="ops-order-card clickable-card"
+                          [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
+                          (click)="openDetail(order.id)"
+                        >
+                          <div class="ops-order-head">
+                            <div>
+                              @if (order.id.startsWith('PPS')) {
+                                <strong>Mesa {{ tableLabel(order) }}</strong>
+                                <small>
+                                  {{ order.items.length }} items
+                                  @if (!order.clientName.startsWith('Mesa ')) {
+                                    | {{ order.clientName }}
+                                  }
+                                </small>
+                                <small class="ops-order-creator" style="color: #a4b4cb;">{{ getCreatorLabel(order) }}</small>
+                              } @else {
+                                <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
+                                <small>{{ order.clientName }}</small>
                               }
-                            </small>
-                            <small class="ops-order-creator" style="color: #a4b4cb;">{{ getCreatorLabel(order) }}</small>
-                          } @else {
-                            <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
-                            <small>{{ order.clientName }}</small>
-                          }
-                        </div>
-                        <span class="ops-order-ref">#{{ order.id }}</span>
-                      </div>
-
-                      <div class="ops-order-body">
-                        <span class="ops-order-label">Comanda</span>
-                        <ul class="ops-preview-list">
-                          @for (item of previewItems(order); track item.id) {
-                            <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.15rem 0;">
-                              <span [style.text-decoration]="item.status === 'LISTO' ? 'line-through' : 'none'" [style.opacity]="item.status === 'LISTO' ? '0.7' : '1'">
-                                {{ item.quantity }}x {{ item.productName }}
-                              </span>
-                              @if (item.status === 'LISTO') {
-                                <span style="font-size: 0.65rem; font-weight: 800; background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 0.1rem 0.35rem; border-radius: 0.4rem; flex-shrink: 0;">
-                                  ✓ LISTO
+                              @if (order.status === 'COBRADO') {
+                                <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
+                                  <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
                                 </span>
                               }
-                            </li>
-                          }
-                        </ul>
-                      </div>
+                            </div>
+                            <span class="ops-order-ref">#{{ order.id }}</span>
+                          </div>
 
-                      <div class="ops-order-foot" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-                        @if (hasPendingItems(order)) {
-                          <button
-                            type="button"
-                            class="btn-ghost ops-ready-btn"
-                            (click)="$event.stopPropagation(); markNextPendingItemReady(order)"
-                          >
-                            Marcar listo
+                          <div class="ops-order-body">
+                            <span class="ops-order-label">{{ section.areaName }}</span>
+                            <ul class="ops-preview-list">
+                              @for (item of previewItems(order); track item.id) {
+                                <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
+                                  <span [style.text-decoration]="isItemReadyForArea(item, section.area) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, section.area) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
+                                    <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
+                                    <span>{{ item.productName }}</span>
+                                    @if (item.note) {
+                                      <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
+                                    }
+                                  </span>
+                                  @if (isItemReadyForArea(item, section.area)) {
+                                    <span class="ops-item-ready-badge">
+                                      <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
+                                    </span>
+                                  } @else {
+                                    <button
+                                      type="button"
+                                      class="ops-item-ready-btn"
+                                      title="Marcar este artículo como listo"
+                                      (click)="$event.stopPropagation(); markReady(order.id, item.id, section.area)"
+                                    >
+                                      <i class="bi bi-check2" aria-hidden="true"></i> Listo
+                                    </button>
+                                  }
+                                </li>
+                              }
+                            </ul>
+                          </div>
+
+                          <div class="ops-order-foot" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                            @if (hasPendingItems(order, section.area)) {
+                              <button
+                                type="button"
+                                class="btn-ghost ops-ready-btn"
+                                (click)="$event.stopPropagation(); markNextPendingItemReady(order, section.area)"
+                              >
+                                Marcar siguiente
+                              </button>
+                            } @else {
+                              <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
+                              </span>
+                              <button
+                                type="button"
+                                class="btn-dismiss-order-btn"
+                                style="font-size: 0.72rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.3rem 0.55rem; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
+                                title="Dejar de mostrar esta comanda en la pantalla"
+                                (click)="$event.stopPropagation(); dismissOrder(order.id)"
+                              >
+                                <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar
+                              </button>
+                            }
+                          </div>
+                        </article>
+                      } @empty {
+                        <p class="empty-state">Sin comandas para esta estación.</p>
+                      }
+                      }
+                    </div>
+                  </article>
+                }
+              </section>
+            } @else {
+              <section class="restaurant-sections">
+                <article class="panel section-panel section-panel--board">
+                  <div class="section-head">
+                    <h2>Comanda completa</h2>
+                    <span class="count-pill">{{ allAreaOrders().length }} comandas</span>
+                  </div>
+
+                  <label class="ops-search-box">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <input
+                      type="text"
+                      [ngModel]="orderSearchQuery()"
+                      (ngModelChange)="orderSearchQuery.set($event || '')"
+                      placeholder="Busqueda"
+                    />
+                  </label>
+
+                  <div class="orders-cards orders-cards--board">
+                    @if (isDataLoading() && !allAreaOrders().length) {
+                      <article class="state-card">
+                        <span class="state-spinner" aria-hidden="true"></span>
+                        <strong>Cargando comandas...</strong>
+                      </article>
+                    } @else if (dataError() && !allAreaOrders().length) {
+                      <article class="state-card">
+                        <strong>{{ dataError() }}</strong>
+                        <div class="state-actions-row">
+                          <button type="button" class="btn-ghost state-retry-btn" (click)="retryLoad()">
+                            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                            Reintentar
                           </button>
-                        } @else {
-                          <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                            <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
-                          </span>
-                          <button
-                            type="button"
-                            class="btn-dismiss-order-btn"
-                            style="font-size: 0.72rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.3rem 0.55rem; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
-                            title="Dejar de mostrar esta comanda en la pantalla"
-                            (click)="$event.stopPropagation(); dismissOrder(order.id)"
-                          >
-                            <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar
+                          <button type="button" class="btn-ghost state-cancel-btn" (click)="cancelLoad()">
+                            <i class="bi bi-x-circle" aria-hidden="true"></i>
+                            Cancelar
                           </button>
-                        }
-                      </div>
-                    </article>
-                  } @empty {
-                    <p class="empty-state">Sin comandas para esta vista.</p>
-                  }
-                  }
-                </div>
-              </article>
-            </section>
+                        </div>
+                      </article>
+                    } @else {
+                    @for (order of allAreaOrders(); track order.id) {
+                      <article
+                        class="ops-order-card clickable-card"
+                        [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
+                        (click)="openDetail(order.id)"
+                      >
+                        <div class="ops-order-head">
+                          <div>
+                            @if (order.id.startsWith('PPS')) {
+                              <strong>Mesa {{ tableLabel(order) }}</strong>
+                              <small>
+                                {{ order.items.length }} items
+                                @if (!order.clientName.startsWith('Mesa ')) {
+                                  | {{ order.clientName }}
+                                }
+                              </small>
+                              <small class="ops-order-creator" style="color: #a4b4cb;">{{ getCreatorLabel(order) }}</small>
+                            } @else {
+                              <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
+                              <small>{{ order.clientName }}</small>
+                            }
+                            @if (order.status === 'COBRADO') {
+                              <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
+                                <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
+                              </span>
+                            }
+                          </div>
+                          <span class="ops-order-ref">#{{ order.id }}</span>
+                        </div>
+
+                        <div class="ops-order-body">
+                          <span class="ops-order-label">Comanda</span>
+                          <ul class="ops-preview-list">
+                            @for (item of previewItems(order); track item.id) {
+                              <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
+                                <span [style.text-decoration]="isItemReadyForArea(item, item.area) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, item.area) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b; flex-wrap: wrap;">
+                                  <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
+                                  <span>{{ item.productName }}</span>
+                                  <span style="font-size: 0.65rem; font-weight: 800; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; padding: 0.1rem 0.35rem; border-radius: 0.35rem;">
+                                    {{ areaLabel(item.area) }}
+                                  </span>
+                                  @if (item.note) {
+                                    <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
+                                  }
+                                </span>
+                                @if (isItemReadyForArea(item, item.area)) {
+                                  <span class="ops-item-ready-badge">
+                                    <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
+                                  </span>
+                                } @else {
+                                  <button
+                                    type="button"
+                                    class="ops-item-ready-btn"
+                                    title="Marcar este artículo como listo"
+                                    (click)="$event.stopPropagation(); markReady(order.id, item.id, item.area)"
+                                  >
+                                    <i class="bi bi-check2" aria-hidden="true"></i> Listo
+                                  </button>
+                                }
+                              </li>
+                            }
+                          </ul>
+                        </div>
+
+                        <div class="ops-order-foot" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                          @if (hasPendingItems(order, 'ALL')) {
+                            <button
+                              type="button"
+                              class="btn-ghost ops-ready-btn"
+                              (click)="$event.stopPropagation(); markNextPendingItemReady(order)"
+                            >
+                              Marcar siguiente
+                            </button>
+                          } @else {
+                            <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
+                            </span>
+                            <button
+                              type="button"
+                              class="btn-dismiss-order-btn"
+                              style="font-size: 0.72rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.3rem 0.55rem; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
+                              title="Dejar de mostrar esta comanda en la pantalla"
+                              (click)="$event.stopPropagation(); dismissOrder(order.id)"
+                            >
+                              <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar
+                            </button>
+                          }
+                        </div>
+                      </article>
+                    } @empty {
+                      <p class="empty-state">Sin comandas para esta vista.</p>
+                    }
+                    }
+                  </div>
+                </article>
+              </section>
+            }
           } @else {
             <section class="restaurant-sections">
               @for (section of areaSections(); track section.restaurantId) {
@@ -244,6 +423,11 @@ interface AreaSection {
                               <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
                               <small>{{ order.clientName }}</small>
                             }
+                            @if (order.status === 'COBRADO') {
+                              <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
+                                <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
+                              </span>
+                            }
                           </div>
                           <span class="ops-order-ref">#{{ order.id }}</span>
                         </div>
@@ -252,14 +436,27 @@ interface AreaSection {
                           <span class="ops-order-label">Comanda</span>
                           <ul class="ops-preview-list">
                             @for (item of previewItems(order); track item.id) {
-                              <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.15rem 0;">
-                                <span [style.text-decoration]="item.status === 'LISTO' ? 'line-through' : 'none'" [style.opacity]="item.status === 'LISTO' ? '0.7' : '1'">
-                                  {{ item.quantity }}x {{ item.productName }}
+                              <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
+                                <span [style.text-decoration]="isItemReadyForArea(item, selectedArea()) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, selectedArea()) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
+                                  <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
+                                  <span>{{ item.productName }}</span>
+                                  @if (item.note) {
+                                    <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
+                                  }
                                 </span>
-                                @if (item.status === 'LISTO') {
-                                  <span style="font-size: 0.65rem; font-weight: 800; background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 0.1rem 0.35rem; border-radius: 0.4rem; flex-shrink: 0;">
-                                    ✓ LISTO
+                                @if (isItemReadyForArea(item, selectedArea())) {
+                                  <span class="ops-item-ready-badge">
+                                    <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
                                   </span>
+                                } @else {
+                                  <button
+                                    type="button"
+                                    class="ops-item-ready-btn"
+                                    title="Marcar este artículo como listo"
+                                    (click)="$event.stopPropagation(); markReady(order.id, item.id, selectedArea())"
+                                  >
+                                    <i class="bi bi-check2" aria-hidden="true"></i> Listo
+                                  </button>
                                 }
                               </li>
                             }
@@ -267,13 +464,13 @@ interface AreaSection {
                         </div>
 
                         <div class="ops-order-foot" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-                          @if (hasPendingItems(order)) {
+                          @if (hasPendingItems(order, selectedArea())) {
                             <button
                               type="button"
                               class="btn-ghost ops-ready-btn"
-                              (click)="$event.stopPropagation(); markNextPendingItemReady(order)"
+                              (click)="$event.stopPropagation(); markNextPendingItemReady(order, selectedArea())"
                             >
-                              Marcar listo
+                              Marcar siguiente
                             </button>
                           } @else {
                             <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -389,17 +586,35 @@ interface AreaSection {
 
             <div class="ops-side-items">
               @for (item of selectedOrder()!.items; track item.id) {
-                <article class="ops-side-item">
+                <article class="ops-side-item" style="display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9;">
                   <div class="ops-side-item-copy">
-                    <strong>{{ item.productName }}</strong>
+                    <strong [style.text-decoration]="item.status === 'LISTO' ? 'line-through' : 'none'" [style.opacity]="item.status === 'LISTO' ? '0.7' : '1'">
+                      {{ item.productName }}
+                    </strong>
                     <small>{{ restaurantLabel(item.restaurantId) }} / {{ areaLabel(item.area) }}</small>
                     @if (item.note) {
                       <small class="item-note">Nota: {{ item.note }}</small>
                     }
                   </div>
-                  <div class="align-end">
-                    <small>x{{ item.quantity }}</small>
-                    <strong>{{ item.quantity * item.unitPrice | currency:'USD' }}</strong>
+                  <div class="align-end" style="display: flex; align-items: center; gap: 0.6rem;">
+                    <div style="text-align: right;">
+                      <small>x{{ item.quantity }}</small>
+                      <div><strong>{{ item.quantity * item.unitPrice | currency:'USD' }}</strong></div>
+                    </div>
+                    @if (isItemReadyForArea(item, selectedArea())) {
+                      <span class="ops-item-ready-badge">
+                        <i class="bi bi-check-lg" aria-hidden="true"></i> Listo
+                      </span>
+                    } @else {
+                      <button
+                        type="button"
+                        class="ops-item-ready-btn"
+                        title="Marcar este producto como Listo"
+                        (click)="markReady(selectedOrder()!.id, item.id, selectedArea() === 'ALL' ? item.area : selectedArea())"
+                      >
+                        <i class="bi bi-check2" aria-hidden="true"></i> Listo
+                      </button>
+                    }
                   </div>
                 </article>
               }
@@ -409,6 +624,16 @@ interface AreaSection {
               <span>Total</span>
               <strong>{{ orderTotal(selectedOrder()!) | currency:'USD' }}</strong>
             </div>
+
+            @if (hasPendingItems(selectedOrder()!, selectedArea())) {
+              <button
+                type="button"
+                style="width: 100%; margin-top: 0.75rem; background: #059669; border-color: #047857; color: #ffffff; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.5rem; padding: 0.6rem 1rem; cursor: pointer;"
+                (click)="markAllReadyInSidePanel(selectedOrder()!.id)"
+              >
+                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Marcar estación lista
+              </button>
+            }
 
             <span class="status-pill ops-side-status" [class]="'status-pill ops-side-status ' + statusClass(selectedOrder()!.status)">
               {{ orderStatusLabel(selectedOrder()!.status) }}
@@ -1041,6 +1266,46 @@ interface AreaSection {
       color: #8d8d8d;
     }
 
+    .ops-item-ready-btn {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #059669;
+      background: #ecfdf5;
+      border: 1px solid #6ee7b7;
+      padding: 0.2rem 0.55rem;
+      border-radius: 0.45rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      min-height: unset;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .ops-item-ready-btn:hover {
+      background: #d1fae5;
+      border-color: #34d399;
+      color: #047857;
+      transform: scale(1.03);
+    }
+
+    .ops-item-ready-badge {
+      font-size: 0.68rem;
+      font-weight: 800;
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.4rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
     .ops-side-panel {
       position: sticky;
       top: 1rem;
@@ -1355,6 +1620,31 @@ export class OpsScreenPageComponent {
       .slice(0, 5);
   });
 
+  readonly allAreaViewMode = signal<'POR_AREA' | 'COMPLETA'>('POR_AREA');
+
+  readonly allAreaDivisionSections = computed(() => {
+    const areas = this.availableAreasForSelection();
+    const restaurantFilter = this.selectedRestaurant();
+    return areas.map((area) => {
+      const baseQueue = this.state.getAreaQueue(area, 'ALL');
+      const orders = baseQueue
+        .filter((order) => !this.isOrderDismissed(order.id))
+        .map((order) => ({
+          ...order,
+          items: order.items.filter((item) => (restaurantFilter === 'ALL' || item.restaurantId === restaurantFilter) && !this.isItemDismissed(item.id))
+        }))
+        .filter((order) => order.items.length > 0)
+        .filter((order) => this.matchesOrderSearch(order))
+        .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+      return {
+        area,
+        areaName: this.areaLabel(area),
+        orders
+      };
+    }).filter((section) => section.orders.length > 0 || restaurantFilter !== 'ALL');
+  });
+
   readonly areaSections = computed<AreaSection[]>(() => {
     const area = this.selectedArea();
     if (area === 'ALL') {
@@ -1437,7 +1727,7 @@ export class OpsScreenPageComponent {
     const filteredOrder = {
       ...order,
       items: order.items.filter((item) => {
-        if (item.status === 'LISTO' || item.status === 'ENTREGADO' || item.status === 'ANULADO') {
+        if (item.status === 'ENTREGADO' || item.status === 'ANULADO') {
           return false;
         }
 
@@ -1491,24 +1781,62 @@ export class OpsScreenPageComponent {
   }
 
   previewItems(order: Order): OrderItem[] {
-    return order.items.slice(0, 3);
+    return order.items;
   }
 
-  hasPendingItems(order: Order): boolean {
-    return order.items.some((item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO');
+  isItemReadyForArea(item: OrderItem, area?: AreaId | 'ALL'): boolean {
+    if (item.status === 'LISTO') {
+      return true;
+    }
+    const targetArea = area ?? this.selectedArea();
+    if (targetArea !== 'ALL' && item.subItems && item.subItems.length > 0) {
+      const subsInArea = item.subItems.filter((sub) => sub.area === targetArea);
+      if (subsInArea.length > 0) {
+        return subsInArea.every((sub) => sub.ready);
+      }
+    }
+    return false;
   }
 
-  markNextPendingItemReady(order: Order): void {
-    const pendingItem = order.items.find((item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO');
+  hasPendingItems(order: Order, area?: AreaId | 'ALL'): boolean {
+    const targetArea = area ?? this.selectedArea();
+    if (targetArea !== 'ALL') {
+      return order.items.some((item) => {
+        if (item.area === targetArea) {
+          return !this.isItemReadyForArea(item, targetArea);
+        }
+        if (item.subItems && item.subItems.some((s) => s.area === targetArea)) {
+          return !this.isItemReadyForArea(item, targetArea);
+        }
+        return false;
+      });
+    }
+    return order.items.some((item) => !this.isItemReadyForArea(item, item.area));
+  }
+
+  markNextPendingItemReady(order: Order, specificArea?: AreaId | 'ALL'): void {
+    const targetArea = specificArea ?? (this.selectedArea() === 'ALL' ? undefined : this.selectedArea());
+    const pendingItem = order.items.find((item) => {
+      if (targetArea && targetArea !== 'ALL') {
+        return !this.isItemReadyForArea(item, targetArea);
+      }
+      return !this.isItemReadyForArea(item, item.area);
+    });
     if (!pendingItem) {
       return;
     }
 
-    this.markReady(order.id, pendingItem.id);
+    const itemTargetArea = targetArea ?? pendingItem.area;
+    this.markReady(order.id, pendingItem.id, itemTargetArea);
   }
 
-  markReady(orderId: string, itemId: string): void {
-    this.state.markItemReady(orderId, itemId, this.selectedArea());
+  markReady(orderId: string, itemId: string, areaOverride?: AreaId | 'ALL'): void {
+    const targetArea = areaOverride ?? this.selectedArea();
+    this.state.markItemReady(orderId, itemId, targetArea);
+  }
+
+  markAllReadyInSidePanel(orderId: string): void {
+    this.state.markOrderReady(orderId, this.selectedArea());
   }
 
   retryLoad(): void {
