@@ -20,6 +20,7 @@ if exist service-account.json (
 
 pyinstaller ^
   --noconfirm ^
+  --onefile ^
   --windowed ^
   --name PrinterBridge ^
   --paths src ^
