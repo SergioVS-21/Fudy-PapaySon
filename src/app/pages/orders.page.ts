@@ -41,6 +41,8 @@ interface DeliveredTableGroup {
   status: Order['status'];
   statusLabel: string;
   isSingleOrder: boolean;
+  hasPendingCobro: boolean;
+  payableOrdersCount: number;
 }
 
 @Component({
@@ -164,6 +166,17 @@ interface DeliveredTableGroup {
                     </td>
                     <td style="padding: 0.65rem 0.85rem; text-align: right;">
                       <div style="display: inline-flex; gap: 0.35rem; align-items: center;">
+                        @if (group.hasPendingCobro) {
+                          <button
+                            type="button"
+                            style="font-size: 0.75rem; font-weight: 800; padding: 0.35rem 0.7rem; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #ffffff; border: none; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);"
+                            [title]="group.isSingleOrder ? 'Cobrar esta comanda' : 'Cobrar todas las comandas de la mesa (' + group.payableOrdersCount + ')'"
+                            (click)="$event.stopPropagation(); openPayTableModal(group)"
+                          >
+                            <i class="bi bi-cash-coin" aria-hidden="true"></i>
+                            {{ group.isSingleOrder ? 'Cobrar' : 'Cobrar mesa' }}
+                          </button>
+                        }
                         @if (group.isSingleOrder) {
                           <button
                             type="button"
@@ -216,7 +229,7 @@ interface DeliveredTableGroup {
                                 <th style="padding: 0.35rem 0.5rem;">Cliente</th>
                                 <th style="padding: 0.35rem 0.5rem;">Hora</th>
                                 <th style="padding: 0.35rem 0.5rem;">Productos</th>
-                                <th style="padding: 0.35rem 0.5rem; text-align: right;">Total Comanda</th>
+                                <th style="padding: 0.35rem 0.5rem; text-align: right;">Total</th>
                                 <th style="padding: 0.35rem 0.5rem; text-align: center;">Estado</th>
                                 <th style="padding: 0.35rem 0.5rem; text-align: right;">Acción</th>
                               </tr>
@@ -246,9 +259,21 @@ interface DeliveredTableGroup {
                                     </span>
                                   </td>
                                   <td style="padding: 0.35rem 0.5rem; text-align: right;">
-                                    <button type="button" class="btn-ghost" style="font-size: 0.72rem; padding: 0.2rem 0.45rem;" (click)="$event.stopPropagation(); openDetail(subOrder.id)">
-                                      <i class="bi bi-eye"></i> Ver
-                                    </button>
+                                    <div style="display: inline-flex; gap: 0.25rem; align-items: center;">
+                                      @if (subOrder.status === 'ENTREGADO') {
+                                        <button
+                                          type="button"
+                                          style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #059669; color: #ffffff; border: none; border-radius: 0.35rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;"
+                                          title="Cobrar esta comanda individualmente"
+                                          (click)="$event.stopPropagation(); openReceivePaymentModal(subOrder.id)"
+                                        >
+                                          <i class="bi bi-cash-coin" aria-hidden="true"></i> Cobrar
+                                        </button>
+                                      }
+                                      <button type="button" class="btn-ghost" style="font-size: 0.72rem; padding: 0.2rem 0.45rem;" (click)="$event.stopPropagation(); openDetail(subOrder.id)">
+                                        <i class="bi bi-eye"></i> Ver
+                                      </button>
+                                    </div>
                                   </td>
                                 </tr>
                               }
@@ -1415,21 +1440,51 @@ interface DeliveredTableGroup {
         </div>
       }
 
-      @if (isReceivePaymentModalOpen() && selectedOrder()) {
+      @if (isReceivePaymentModalOpen() && (paymentTargetOrders().length > 0 || selectedOrder())) {
         <div class="overlay overlay-front" (click)="closeReceivePaymentModal()">
           <article class="modal detail-modal confirm-modal" (click)="$event.stopPropagation()">
             <div class="modal-head">
-              <h2>Confirmar pago</h2>
+              <h2>Confirmar pago - {{ paymentModalTitle() }}</h2>
               <button type="button" class="btn-ghost" (click)="closeReceivePaymentModal()">
                 <span class="btn-content"><i class="bi bi-x-lg btn-icon" aria-hidden="true"></i>Cerrar</span>
               </button>
             </div>
 
-            <p class="summary">
-              {{ requiresPapaAndSonPaymentVerification(selectedOrder()!)
-                ? 'Registra la referencia para enviar la verificacion a Caja.'
-                : 'Registra la referencia de pago para cerrar la orden como en Caja.' }}
+            <p class="summary" style="margin-bottom: 0.75rem;">
+              {{ paymentRequiresVerification() && paymentMethod() === 'PAGO_MOVIL'
+                ? 'Registra la referencia para enviar la verificación a Caja.'
+                : 'Registra el método y referencia de pago para cerrar las comandas.' }}
             </p>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.75rem; margin: 0.75rem 0;">
+              <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem;">
+                Comandas a pagar ({{ paymentTargetOrders().length }}):
+                <strong style="color: #1e293b;">{{ paymentTargetOrderIdsString() }}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #475569;">
+                <span>Subtotal:</span>
+                <strong>\${{ paymentPayableSubtotal() | number:'1.2-2' }}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #475569;">
+                <span>+IVA (16%):</span>
+                <strong>\${{ paymentPayableTax() | number:'1.2-2' }}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669; border-top: 1px solid #e2e8f0; padding-top: 0.35rem; margin-top: 0.35rem;">
+                <span>Total a pagar:</span>
+                <span>\${{ paymentPayableTotal() | number:'1.2-2' }}</span>
+              </div>
+              <div style="text-align: right; font-size: 0.8rem; color: #64748b;">
+                {{ paymentPayableTotalBs() | number:'1.2-2' }} Bs
+              </div>
+            </div>
+
+            @if (paymentShouldShowQr() && paymentMethod() === 'PAGO_MOVIL') {
+              <article class="next-qr-box" style="margin-bottom: 0.75rem; text-align: center;">
+                <h4 style="margin: 0 0 0.25rem 0; font-size: 0.9rem;">Pago móvil Papa y Son</h4>
+                <img src="assets/img/QR PAGO MOVIL.jpeg" alt="QR de pago Papa y Son" loading="lazy" style="max-width: 140px; border-radius: 0.5rem; margin: 0 auto;" />
+                <small style="display: block; color: #64748b; margin-top: 0.25rem;">Escanea el QR y luego registra la referencia.</small>
+              </article>
+            }
 
             <label>
               Método de pago
@@ -1460,12 +1515,20 @@ interface DeliveredTableGroup {
               </label>
             }
 
-            <div class="detail-actions">
+            <div class="detail-actions" style="margin-top: 1.25rem;">
               <button type="button" class="btn-ghost" (click)="closeReceivePaymentModal()">
                 <span class="btn-content"><i class="bi bi-x-lg btn-icon" aria-hidden="true"></i>Cancelar</span>
               </button>
-              <button type="button" [disabled]="paymentMethod() === 'PAGO_MOVIL' && paymentReference().trim().length < 3" (click)="confirmReceivePayment()">
-                <span class="btn-content"><i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>{{ selectedOrder() && requiresPapaAndSonPaymentVerification(selectedOrder()!) ? 'Enviar a verificar' : 'Continuar y cerrar' }}</span>
+              <button
+                type="button"
+                style="background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #ffffff; font-weight: 800;"
+                [disabled]="paymentMethod() === 'PAGO_MOVIL' && paymentReference().trim().length < 3"
+                (click)="confirmReceivePayment()"
+              >
+                <span class="btn-content">
+                  <i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>
+                  {{ paymentRequiresVerification() && paymentMethod() === 'PAGO_MOVIL' ? 'Enviar a verificar' : 'Confirmar pago' }}
+                </span>
               </button>
             </div>
           </article>
@@ -4055,12 +4118,14 @@ export class OrdersPageComponent {
       const total = subtotal + tax;
       const totalBs = total * this.bcvRate();
 
-      const allCobrado = orders.every((o) => o.status === 'COBRADO');
+      const payableOrders = orders.filter((o) => o.status === 'ENTREGADO');
+      const allCobrado = orders.length > 0 && orders.every((o) => o.status === 'COBRADO');
+      const hasPendingCobro = payableOrders.length > 0;
       const status: Order['status'] = allCobrado ? 'COBRADO' : 'ENTREGADO';
       const statusLabel = allCobrado
         ? 'Cobrado'
         : orders.length > 1 && orders.some((o) => o.status === 'COBRADO')
-        ? 'Parcialmente Cobrado'
+        ? `${payableOrders.length} por cobrar`
         : 'Entregado';
 
       groups.push({
@@ -4078,7 +4143,9 @@ export class OrdersPageComponent {
         totalBs,
         status,
         statusLabel,
-        isSingleOrder: orders.length === 1
+        isSingleOrder: orders.length === 1,
+        hasPendingCobro,
+        payableOrdersCount: payableOrders.length
       });
     });
 
@@ -4604,6 +4671,65 @@ export class OrdersPageComponent {
     this.billTipPercent.set(Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : 0);
   }
 
+  readonly paymentTargetOrders = signal<Order[]>([]);
+  readonly paymentModalCustomTitle = signal<string>('');
+
+  readonly paymentModalTitle = computed(() => {
+    if (this.paymentModalCustomTitle()) {
+      return this.paymentModalCustomTitle();
+    }
+    const orders = this.paymentTargetOrders();
+    if (orders.length === 1) {
+      const order = orders[0];
+      return `Comanda #${order.id}` + (order.tableNumber > 0 ? ` (Mesa ${this.tableLabel(order)})` : '');
+    }
+    if (orders.length > 1) {
+      return `Mesa ${this.tableLabel(orders[0])} (${orders.length} comandas)`;
+    }
+    return 'Pago';
+  });
+
+  readonly paymentTargetOrderIdsString = computed(() => {
+    return this.paymentTargetOrders().map((o) => '#' + o.id).join(', ');
+  });
+
+  readonly paymentPayableSubtotal = computed(() => {
+    return this.paymentTargetOrders().reduce((sum, order) => sum + this.selectedOrderTotalFor(order), 0);
+  });
+
+  readonly paymentPayableTax = computed(() => {
+    return this.paymentPayableSubtotal() * PAPA_AND_SON_IVA_RATE;
+  });
+
+  readonly paymentPayableTotal = computed(() => {
+    return this.paymentPayableSubtotal() + this.paymentPayableTax();
+  });
+
+  readonly paymentPayableTotalBs = computed(() => {
+    return this.paymentPayableTotal() * this.bcvRate();
+  });
+
+  readonly paymentRequiresVerification = computed(() => {
+    return this.paymentTargetOrders().some((o) => this.requiresPapaAndSonPaymentVerification(o));
+  });
+
+  readonly paymentShouldShowQr = computed(() => {
+    return this.paymentTargetOrders().some((o) => this.shouldShowPapaAndSonQr(o));
+  });
+
+  openPayTableModal(group: DeliveredTableGroup): void {
+    const payableOrders = group.orders.filter((o) => o.status === 'ENTREGADO');
+    if (!payableOrders.length) {
+      return;
+    }
+
+    this.paymentTargetOrders.set(payableOrders);
+    this.paymentModalCustomTitle.set(`Mesa ${group.tableLabel} (${payableOrders.length} comandas)`);
+    this.paymentMethod.set('EFECTIVO_BS');
+    this.paymentReference.set('');
+    this.isReceivePaymentModalOpen.set(true);
+  }
+
   openReceivePaymentModal(orderId: string): void {
     const order = this.state.orders().find((item) => item.id === orderId);
     if (!order || order.status !== 'ENTREGADO' || this.isPendingPaymentVerification(order)) {
@@ -4611,6 +4737,8 @@ export class OrdersPageComponent {
     }
 
     this.selectedOrderId.set(orderId);
+    this.paymentTargetOrders.set([order]);
+    this.paymentModalCustomTitle.set(`Comanda #${order.id}${order.tableNumber > 0 ? ' (Mesa ' + this.tableLabel(order) + ')' : ''}`);
     this.paymentMethod.set('EFECTIVO_BS');
     this.paymentReference.set('');
     this.isReceivePaymentModalOpen.set(true);
@@ -4619,32 +4747,50 @@ export class OrdersPageComponent {
   closeReceivePaymentModal(): void {
     this.isReceivePaymentModalOpen.set(false);
     this.paymentReference.set('');
+    this.paymentTargetOrders.set([]);
+    this.paymentModalCustomTitle.set('');
   }
 
   confirmReceivePayment(): void {
-    const order = this.selectedOrder();
-    const method = this.paymentMethod();
-    const reference = method === 'PAGO_MOVIL' ? this.paymentReference().trim() : '';
-    if (!order || order.status !== 'ENTREGADO') {
+    const orders = this.paymentTargetOrders().length > 0
+      ? this.paymentTargetOrders()
+      : (this.selectedOrder() ? [this.selectedOrder()!] : []);
+
+    if (!orders.length) {
       return;
     }
+
+    const method = this.paymentMethod();
+    const reference = method === 'PAGO_MOVIL' ? this.paymentReference().trim() : (this.paymentReference().trim() || 'EFECTIVO');
     if (method === 'PAGO_MOVIL' && reference.length < 3) {
       return;
     }
 
-    if (this.requiresPapaAndSonPaymentVerification(order)) {
-      this.state.requestPaymentVerification(order.id, {
-        paymentMethod: method,
-        paymentReference: reference,
-        paymentAmountUsd: this.selectedOrderPayableTotal(),
-        paymentAmountBs: this.selectedOrderPayableTotalBs()
+    const requiresVerification = orders.some((o) => this.requiresPapaAndSonPaymentVerification(o));
+
+    if (requiresVerification && method === 'PAGO_MOVIL') {
+      orders.forEach((order) => {
+        const orderSubtotal = this.selectedOrderTotalFor(order);
+        const orderTax = orderSubtotal * PAPA_AND_SON_IVA_RATE;
+        const orderTotal = orderSubtotal + orderTax;
+        this.state.requestPaymentVerification(order.id, {
+          paymentMethod: method,
+          paymentReference: reference,
+          paymentAmountUsd: orderTotal,
+          paymentAmountBs: orderTotal * this.bcvRate()
+        });
       });
     } else {
-      this.state.completeOrder(order.id, {
-        paymentMethod: method,
-        paymentReference: reference,
-        paymentAmountUsd: this.selectedOrderPayableTotal(),
-        paymentAmountBs: this.selectedOrderPayableTotalBs()
+      orders.forEach((order) => {
+        const orderSubtotal = this.selectedOrderTotalFor(order);
+        const orderTax = orderSubtotal * PAPA_AND_SON_IVA_RATE;
+        const orderTotal = orderSubtotal + orderTax;
+        this.state.completeOrder(order.id, {
+          paymentMethod: method,
+          paymentReference: reference,
+          paymentAmountUsd: orderTotal,
+          paymentAmountBs: orderTotal * this.bcvRate()
+        });
       });
     }
 

@@ -759,33 +759,47 @@ interface PaymentReceiptSnapshot {
             </div>
 
             @if (selectedActiveClientView()) {
-              <div class="cashier-side-payment">
-                <h3>Metodo de Pago</h3>
-                <select [ngModel]="paymentMethod()" (ngModelChange)="paymentMethod.set($event)">
-                  @for (method of paymentMethods; track method) {
-                    <option [value]="method">{{ methodLabel(method) }}</option>
-                  }
-                </select>
-
-                <input
-                  type="text"
-                  [ngModel]="paymentReference()"
-                  (ngModelChange)="paymentReference.set(($event || '').trim())"
-                  placeholder="Referencia"
-                />
-
-                <div class="cashier-side-payment-actions">
-                  <button type="button" [disabled]="!canConfirmPayment()" (click)="submitSelectedPayment()">
-                    {{ selectedPapaAndSonTableClientViews().length > 1 ? 'Cobrar esta cédula' : 'Cobrar' }}
-                  </button>
-
-                  @if (canChargeSelectedPapaAndSonTable()) {
-                    <button type="button" class="btn-ghost" [disabled]="!canConfirmPayment()" (click)="submitSelectedPapaAndSonTablePayment()">
-                      Cobrar todo
+              @if (selectedActiveClientIsPaid()) {
+                <div class="cashier-side-payment cashier-side-payment--readonly">
+                  <h3>Comanda ya cobrada</h3>
+                  <p style="margin: 0.5rem 0; font-size: 0.88rem; color: #16a34a; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="bi bi-check-circle-fill"></i> Esta comanda ya fue cobrada. La mesa se liberará automáticamente al entregarse.
+                  </p>
+                  <div class="cashier-side-payment-actions" style="margin-top: 0.75rem;">
+                    <button type="button" class="btn-delivered-cashier" (click)="markSelectedClientDelivered()">
+                      <i class="bi bi-box-seam-fill"></i> Marcar entregado y liberar mesa
                     </button>
-                  }
+                  </div>
                 </div>
-              </div>
+              } @else {
+                <div class="cashier-side-payment">
+                  <h3>Metodo de Pago</h3>
+                  <select [ngModel]="paymentMethod()" (ngModelChange)="paymentMethod.set($event)">
+                    @for (method of paymentMethods; track method) {
+                      <option [value]="method">{{ methodLabel(method) }}</option>
+                    }
+                  </select>
+
+                  <input
+                    type="text"
+                    [ngModel]="paymentReference()"
+                    (ngModelChange)="paymentReference.set(($event || '').trim())"
+                    placeholder="Referencia"
+                  />
+
+                  <div class="cashier-side-payment-actions">
+                    <button type="button" [disabled]="!canConfirmPayment()" (click)="submitSelectedPayment()">
+                      {{ selectedPapaAndSonTableClientViews().length > 1 ? 'Cobrar esta cédula' : 'Cobrar' }}
+                    </button>
+
+                    @if (canChargeSelectedPapaAndSonTable()) {
+                      <button type="button" class="btn-ghost" [disabled]="!canConfirmPayment()" (click)="submitSelectedPapaAndSonTablePayment()">
+                        Cobrar todo
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
             } @else {
               <div class="cashier-side-payment cashier-side-payment--readonly">
                 <h3>Pago registrado</h3>
@@ -1876,6 +1890,25 @@ interface PaymentReceiptSnapshot {
     .cashier-side-payment-actions {
       display: grid;
       gap: 0.65rem;
+    }
+
+    .btn-delivered-cashier {
+      background: #16a34a;
+      color: #ffffff;
+      border: 1px solid #15803d;
+      font-weight: 700;
+      padding: 0.65rem 1rem;
+      border-radius: 0.6rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: background 0.2s ease;
+    }
+
+    .btn-delivered-cashier:hover {
+      background: #15803d;
     }
 
     .cashier-side-payment--readonly small {
@@ -3017,14 +3050,24 @@ export class DashboardPageComponent {
 
       const uncancelledItems = order.items.filter((item) => item.status !== 'ANULADO');
       const unpaidItems = uncancelledItems.filter((item) => !item.paid);
+      const undeliveredItems = uncancelledItems.filter((item) => item.status !== 'ENTREGADO');
 
-      // Si la orden ya está cobrada y no tiene ítems nuevos sin pagar, ya no es activa
-      if (order.status === 'COBRADO' && !unpaidItems.length) {
+      const isDelivered = uncancelledItems.length > 0 && undeliveredItems.length === 0;
+      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) && unpaidItems.length === 0;
+
+      // Se libera de la mesa SOLO cuando se cumplen AMBAS condiciones:
+      // 1. Ya fue cobrada (isPaid)
+      // 2. Ya fue entregada (isDelivered)
+      if (isPaid && isDelivered) {
         return;
       }
 
-      // Tomamos los ítems pendientes de cobro; si la comanda no está cobrada, se toman los unpaid o todos los no cancelados
-      const payableItems = unpaidItems.length > 0 ? unpaidItems : (order.status !== 'COBRADO' ? uncancelledItems : []);
+      if (!uncancelledItems.length) {
+        return;
+      }
+
+      // Tomamos los ítems pendientes de cobro; si la comanda ya está cobrada pero aún no entregada, tomamos todos los no cancelados
+      const payableItems = unpaidItems.length > 0 ? unpaidItems : uncancelledItems;
       if (!payableItems.length) {
         return;
       }
@@ -3095,7 +3138,7 @@ export class DashboardPageComponent {
     this.localOrderViews()
       .filter(
         (view) =>
-          (view.order.status === 'COBRADO' || !!view.order.closedAt) &&
+          (view.order.status === 'COBRADO' || !!view.order.closedAt || !!view.order.paymentMethod) &&
           this.matchesRestaurant(view.localId) &&
           this.matchesClientDocument(view.order.clientDocumentId ?? '') &&
           this.isWithinSelectedRange(view.order.closedAt || view.order.createdAt)
@@ -3216,6 +3259,31 @@ export class DashboardPageComponent {
 
     return this.activeViews().find((view) => view.key === key) ?? null;
   });
+
+  readonly selectedActiveClientIsPaid = computed(() => {
+    const clientView = this.selectedActiveClientView();
+    if (!clientView || !clientView.orders.length) {
+      return false;
+    }
+    return clientView.orders.every((order) => {
+      const uncancelled = order.items.filter((item) => item.status !== 'ANULADO');
+      const allItemsPaid = uncancelled.length > 0 && uncancelled.every((item) => item.paid);
+      return (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || allItemsPaid;
+    });
+  });
+
+  markSelectedClientDelivered(): void {
+    const clientView = this.selectedActiveClientView();
+    if (!clientView) {
+      return;
+    }
+
+    clientView.orderIds.forEach((orderId) => {
+      this.state.markDelivered(orderId);
+    });
+
+    this.closeDetail();
+  }
 
   readonly selectedHistoryOrderView = computed(() => {
     const orderId = this.selectedOrderId();
@@ -3847,6 +3915,16 @@ export class DashboardPageComponent {
       return 'ENTREGADO';
     }
 
+    const allPaid = orders.every((order) => {
+      const uncancelled = order.items.filter((item) => item.status !== 'ANULADO');
+      const allItemsPaid = uncancelled.length > 0 && uncancelled.every((item) => item.paid);
+      return (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || allItemsPaid;
+    });
+
+    if (allPaid) {
+      return 'COBRADO';
+    }
+
     if (orders.every((order) => order.status === 'ENTREGADO')) {
       return 'ENTREGADO';
     }
@@ -3857,10 +3935,6 @@ export class DashboardPageComponent {
 
     if (orders.some((order) => order.status === 'LISTO')) {
       return 'LISTO';
-    }
-
-    if (orders.some((order) => order.status === 'COBRADO')) {
-      return 'COBRADO';
     }
 
     return 'PENDIENTE';

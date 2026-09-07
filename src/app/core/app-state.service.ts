@@ -1015,16 +1015,18 @@ export class AppStateService {
   markDelivered(orderId: string): void {
     const now = new Date().toISOString();
     this.orders.update((orders) =>
-      orders.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: 'ENTREGADO',
-              items: order.items.map(item => ({ ...item, status: 'ENTREGADO', updatedAt: now })),
-              updatedAt: now
-            }
-          : order
-      )
+      orders.map((order) => {
+        if (order.id !== orderId) {
+          return order;
+        }
+        const isAlreadyCobrado = order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod;
+        return {
+          ...order,
+          status: isAlreadyCobrado ? 'COBRADO' : 'ENTREGADO',
+          items: order.items.map(item => ({ ...item, status: 'ENTREGADO', updatedAt: now })),
+          updatedAt: now
+        };
+      })
     );
     this.syncOrderById(orderId);
   }
@@ -1047,10 +1049,14 @@ export class AppStateService {
           (item) => item.status === 'ENTREGADO' || item.status === 'ANULADO'
         );
 
+        const isAlreadyCobrado = order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod;
+
         return {
           ...order,
           items: updatedItems,
-          status: allItemsDelivered ? 'ENTREGADO' : order.status,
+          status: isAlreadyCobrado
+            ? 'COBRADO'
+            : (allItemsDelivered ? 'ENTREGADO' : order.status),
           updatedAt: now
         };
       })
@@ -2377,7 +2383,7 @@ export class AppStateService {
         note: item.note,
         unitPrice: item.unitPrice,
         status: item.status,
-        paid: item.paid ?? (order.status === 'COBRADO' || !!order.closedAt),
+        paid: item.paid ?? (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod),
         paidAt: typeof item.paidAt === 'string' ? item.paidAt : ((item.paidAt as any)?.toDate?.()?.toISOString?.() ?? undefined),
         subItems: item.subItems,
         mainReady: item.mainReady,
