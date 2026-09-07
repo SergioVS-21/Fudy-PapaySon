@@ -5,6 +5,7 @@ import os
 import platform
 import queue
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -128,19 +129,33 @@ class PrintedRegistry:
     def _load(self) -> dict[str, str]:
         if not PRINTED_ITEMS_PATH.exists():
             return {}
-        return json.loads(PRINTED_ITEMS_PATH.read_text(encoding="utf-8"))
+        try:
+            return json.loads(PRINTED_ITEMS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
 
     def has(self, item_id: str) -> bool:
+        if not item_id:
+            return False
         with self._lock:
+            if item_id in self._printed:
+                return True
+            self._printed.update(self._load())
             return item_id in self._printed
 
     def mark(self, item_id: str) -> None:
+        if not item_id:
+            return
         with self._lock:
+            self._printed.update(self._load())
             self._printed[item_id] = datetime.now().isoformat()
-            PRINTED_ITEMS_PATH.write_text(
-                json.dumps(self._printed, indent=2, ensure_ascii=True),
-                encoding="utf-8",
-            )
+            try:
+                PRINTED_ITEMS_PATH.write_text(
+                    json.dumps(self._printed, indent=2, ensure_ascii=True),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
 
 class PrinterService:
@@ -240,8 +255,8 @@ class EscPos58Formatter:
         body.extend(cls._encode("-" * cls.WIDTH + "\n"))
         body.extend(b"\x1ba\x01")
         body.extend(cls._encode(datetime.now().strftime("%d/%m/%Y %H:%M") + "\n"))
-        body.extend(cls._encode("\n\n\n"))
-        body.extend(b"\x1dV\x00")
+        body.extend(cls._encode("\n\n\n\n"))
+        body.extend(b"\x1b@")
         return bytes(body)
 
     @classmethod
@@ -322,8 +337,8 @@ class EscPos58Formatter:
         body.extend(cls._encode("NO FISCAL\n"))
         body.extend(b"\x1ba\x01")
         body.extend(cls._encode("Gracias por su compra\n"))
-        body.extend(cls._encode("\n\n\n"))
-        body.extend(b"\x1dV\x00")
+        body.extend(cls._encode("\n\n\n\n"))
+        body.extend(b"\x1b@")
         return bytes(body)
 
     @classmethod
@@ -438,12 +453,21 @@ class FirestorePrintBridge:
             grouped.setdefault(payload["orderId"], []).append(payload)
 
         for order_id, items in grouped.items():
+            pending_items = [it for it in items if not self.registry.has(it.get("id") or "")]
+            if not pending_items:
+                continue
+
+            for item in pending_items:
+                item_id = item.get("id") or ""
+                if item_id:
+                    self.registry.mark(item_id)
+
             try:
-                ticket = self._build_ticket(order_id, items)
+                ticket = self._build_ticket(order_id, pending_items)
                 PrinterService.print_bytes(self.config.printer_name, ticket)
-                for item in items:
-                    self.registry.mark(item.get("id", ""))
-                self.logger(f"Impresa comanda {order_id} con {len(items)} items")
+                areas = sorted({str(it.get("area", "")) for it in pending_items if it.get("area")})
+                area_tag = f"[{', '.join(areas)}] " if areas else ""
+                self.logger(f"{area_tag}Impresa comanda {order_id} con {len(pending_items)} items")
             except Exception as exc:  # noqa: BLE001
                 self.logger(f"Error imprimiendo {order_id}: {exc}")
 
@@ -471,11 +495,13 @@ class FirestorePrintBridge:
             if not self._matches_print_job(payload):
                 continue
 
+            self.registry.mark(job_id)
+
             try:
                 ticket = EscPos58Formatter.build_consumption_note(payload)
                 PrinterService.print_bytes(self.config.printer_name, ticket)
-                self.registry.mark(job_id)
-                self.logger(f"Impresa nota de consumo {job_id}")
+                area = payload.get("area") or "CAJA"
+                self.logger(f"[{area}] Impresa nota de consumo {job_id}")
             except Exception as exc:  # noqa: BLE001
                 self.logger(f"Error imprimiendo nota de consumo {job_id}: {exc}")
 
@@ -484,7 +510,7 @@ class FirestorePrintBridge:
         status = payload.get("status")
         restaurant_id = payload.get("restaurantId")
 
-        if area not in self.config.handled_areas:
+        if not area or area not in self.config.handled_areas:
             return False
         if status not in PENDING_STATUSES:
             return False
@@ -503,7 +529,8 @@ class FirestorePrintBridge:
     def _matches_print_job(self, payload: dict[str, Any]) -> bool:
         if payload.get("type") != "NOTA_CONSUMO":
             return False
-        if payload.get("area") not in self.config.handled_areas:
+        area = payload.get("area")
+        if not area or area not in self.config.handled_areas:
             return False
 
         restaurant_ids = payload.get("restaurantIds") or []
@@ -541,6 +568,9 @@ class PrinterBridgeApp:
             area: StringVar(value="1" if area in self.config.handled_areas else "0")
             for area in self.access_profile["allowed_areas"]
         }
+        self.start_btn: ttk.Button | None = None
+        self.stop_btn: ttk.Button | None = None
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build_ui()
         self.root.deiconify()
         self.root.after(250, self._drain_events)
@@ -638,9 +668,11 @@ class PrinterBridgeApp:
         ttk.Button(buttons, text="Guardar configuracion", command=self._save_config).pack(side=LEFT)
         ttk.Button(buttons, text="Refrescar impresoras", command=self._refresh_printers).pack(side=LEFT, padx=8)
         ttk.Button(buttons, text="Probar conexion", command=self._test_connection).pack(side=LEFT)
-        ttk.Button(buttons, text="Iniciar escucha", command=self._start_listener).pack(side=LEFT, padx=8)
-        ttk.Button(buttons, text="Detener", command=self._stop_listener).pack(side=LEFT)
-        ttk.Button(buttons, text="Imprimir prueba", command=self._print_test).pack(side=LEFT)
+        self.start_btn = ttk.Button(buttons, text="Iniciar escucha", command=self._start_listener)
+        self.start_btn.pack(side=LEFT, padx=8)
+        self.stop_btn = ttk.Button(buttons, text="Detener", command=self._stop_listener, state="disabled")
+        self.stop_btn.pack(side=LEFT)
+        ttk.Button(buttons, text="Imprimir prueba", command=self._print_test).pack(side=LEFT, padx=8)
 
         ttk.Label(frame, text="Eventos").pack(anchor="w")
         self.log = ttk.Treeview(frame, columns=("message",), show="headings", height=14)
@@ -687,23 +719,56 @@ class PrinterBridgeApp:
         self.printer_combo["values"] = PrinterService.list_printers()
         self._push_event("Listado de impresoras actualizado")
 
+    def _on_close(self) -> None:
+        if self.bridge:
+            try:
+                self.bridge.stop()
+            except Exception:
+                pass
+            self.bridge = None
+        self.root.destroy()
+
+    def _set_listener_state(self, active: bool) -> None:
+        if self.start_btn and self.stop_btn:
+            if active:
+                self.start_btn.configure(state="disabled")
+                self.stop_btn.configure(state="normal")
+            else:
+                self.start_btn.configure(state="normal")
+                self.stop_btn.configure(state="disabled")
+
     def _start_listener(self) -> None:
         self._save_config()
         if not self.config.printer_name:
             messagebox.showerror(APP_NAME, "Selecciona una impresora antes de iniciar")
             return
 
+        if self.bridge:
+            try:
+                self.bridge.stop()
+            except Exception:
+                pass
+            self.bridge = None
+
         try:
             self.bridge = FirestorePrintBridge(self.config, self.registry, self._push_event)
             self.bridge.start()
-            self._push_event("Listener iniciado")
+            self._set_listener_state(True)
+            areas_str = ", ".join(self.config.handled_areas)
+            self._push_event(f"Listener iniciado (Áreas activas: {areas_str})")
         except Exception as exc:  # noqa: BLE001
+            self._set_listener_state(False)
             messagebox.showerror(APP_NAME, str(exc))
 
     def _stop_listener(self) -> None:
         if self.bridge:
-            self.bridge.stop()
+            try:
+                self.bridge.stop()
+            except Exception:
+                pass
             self.bridge = None
+        self._set_listener_state(False)
+        self._push_event("Listener detenido")
 
     def _test_connection(self) -> None:
         self._save_config()
@@ -753,7 +818,33 @@ class PrinterBridgeApp:
         self.root.mainloop()
 
 
+SINGLE_INSTANCE_PORT = 48529
+_instance_socket: socket.socket | None = None
+
+
+def ensure_single_instance() -> bool:
+    global _instance_socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
+        sock.listen(1)
+        _instance_socket = sock
+        return True
+    except OSError:
+        return False
+
+
 def main() -> None:
+    if not ensure_single_instance():
+        temp_root = Tk()
+        temp_root.withdraw()
+        messagebox.showwarning(
+            APP_NAME,
+            "PrinterBridge ya se encuentra en ejecución en este equipo.\nNo se permite abrir múltiples instancias."
+        )
+        temp_root.destroy()
+        sys.exit(0)
+
     app = PrinterBridgeApp()
     app.run()
 

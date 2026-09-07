@@ -4193,48 +4193,6 @@ export class OrdersPageComponent {
       paymentMethod: group.orders[0]?.paymentMethod ?? 'EFECTIVO',
       paymentReference: group.orders.map((o) => o.paymentReference).filter(Boolean).join(', ')
     });
-
-    const popup = window.open('', '_blank', 'width=400,height=600');
-    if (!popup) {
-      return;
-    }
-
-    const itemsRows = group.items
-      .map((i) => '<tr><td style="padding:4px 0;">' + i.quantity + 'x ' + i.productName + '</td><td style="text-align:right;padding:4px 0;">$' + i.total.toFixed(2) + '</td></tr>')
-      .join('');
-
-    const formattedDate = new Date(group.lastActivityAt).toLocaleString('es-VE');
-
-    const htmlContent = [
-      '<!DOCTYPE html><html><head><title>Cuenta Mesa ' + group.tableLabel + '</title>',
-      '<style>body{font-family:monospace;padding:15px;width:280px;margin:0 auto;color:#000;}h2{text-align:center;margin:0 0 5px 0;text-transform:uppercase;font-size:1.2rem;}p{margin:3px 0;font-size:0.85rem;}hr{border:none;border-top:1px dashed #000;margin:10px 0;}table{width:100%;font-size:0.85rem;border-collapse:collapse;}.right{text-align:right;}.bold{font-weight:bold;}.center{text-align:center;}</style>',
-      '</head><body>',
-      '<h2>PAPA Y SON</h2>',
-      '<p class="center">CUENTA TOTAL DE MESA</p>',
-      '<hr>',
-      '<p><strong>Mesa:</strong> ' + group.tableLabel + '</p>',
-      '<p><strong>Comandas:</strong> ' + group.orderIds.map((id) => '#' + id).join(', ') + '</p>',
-      '<p><strong>Cliente:</strong> ' + (group.clientNames || 'Varios') + '</p>',
-      '<p><strong>Fecha:</strong> ' + formattedDate + '</p>',
-      '<hr>',
-      '<table><thead><tr><th style="text-align:left;">Cant/Item</th><th style="text-align:right;">Total</th></tr></thead><tbody>',
-      itemsRows,
-      '</tbody></table>',
-      '<hr>',
-      '<p class="right">SUBTOTAL: $' + subtotal.toFixed(2) + '</p>',
-      '<p class="right">+IVA (16%): $' + taxUsd.toFixed(2) + '</p>',
-      '<p class="bold right" style="font-size:1.05rem;">TOTAL USD: $' + totalUsd.toFixed(2) + '</p>',
-      '<p class="right" style="font-size:0.95rem;">TOTAL BS: Bs. ' + totalBs.toFixed(2) + '</p>',
-      '<hr>',
-      '<p class="center">¡Gracias por su preferencia!</p>',
-      '</body></html>'
-    ].join('\n');
-
-    popup.document.open();
-    popup.document.write(htmlContent);
-    popup.document.close();
-    popup.focus();
-    setTimeout(() => popup.print(), 250);
   }
 
   readonly selectedOrder = computed(() => {
@@ -5196,52 +5154,6 @@ export class OrdersPageComponent {
       paymentMethod: order.paymentMethod ?? 'EFECTIVO',
       paymentReference: order.paymentReference ?? ''
     });
-
-    const popup = window.open('', '_blank', 'width=400,height=600');
-    if (!popup) {
-      return;
-    }
-
-    const itemsRows = order.items
-      .filter((i) => i.status !== 'ANULADO')
-      .map((i) => '<tr><td style="padding:4px 0;">' + i.quantity + 'x ' + i.productName + '</td><td style="text-align:right;padding:4px 0;">$' + (i.quantity * i.unitPrice).toFixed(2) + '</td></tr>')
-      .join('');
-
-    const formattedDate = new Date(order.closedAt || order.createdAt).toLocaleString('es-VE');
-    const refLine = order.paymentReference ? '<p><strong>Ref:</strong> ' + order.paymentReference + '</p>' : '';
-
-    const htmlContent = [
-      '<!DOCTYPE html><html><head><title>Factura #' + order.id + '</title>',
-      '<style>body{font-family:monospace;padding:15px;width:280px;margin:0 auto;color:#000;}h2{text-align:center;margin:0 0 5px 0;text-transform:uppercase;font-size:1.2rem;}p{margin:3px 0;font-size:0.85rem;}hr{border:none;border-top:1px dashed #000;margin:10px 0;}table{width:100%;font-size:0.85rem;border-collapse:collapse;}.right{text-align:right;}.bold{font-weight:bold;}.center{text-align:center;}</style>',
-      '</head><body>',
-      '<h2>PAPA Y SON</h2>',
-      '<p class="center">COMPROBANTE / FACTURA DE PAGO</p>',
-      '<hr>',
-      '<p><strong>Orden:</strong> #' + order.id + '</p>',
-      '<p><strong>Cliente:</strong> ' + order.clientName + '</p>',
-      '<p><strong>Mesa:</strong> ' + this.tableLabel(order) + '</p>',
-      '<p><strong>Fecha:</strong> ' + formattedDate + '</p>',
-      '<p><strong>Metodo:</strong> ' + (order.paymentMethod || 'EFECTIVO') + '</p>',
-      refLine,
-      '<hr>',
-      '<table><thead><tr><th style="text-align:left;">Cant/Item</th><th style="text-align:right;">Total</th></tr></thead><tbody>',
-      itemsRows,
-      '</tbody></table>',
-      '<hr>',
-      '<p class="right">SUBTOTAL: $' + subtotal.toFixed(2) + '</p>',
-      '<p class="right">+IVA (16%): $' + taxUsd.toFixed(2) + '</p>',
-      '<p class="bold right" style="font-size:1.05rem;">TOTAL USD: $' + totalUsd.toFixed(2) + '</p>',
-      '<p class="right" style="font-size:0.95rem;">TOTAL BS: Bs. ' + totalBs.toFixed(2) + '</p>',
-      '<hr>',
-      '<p class="center">¡Gracias por su preferencia!</p>',
-      '</body></html>'
-    ].join('\n');
-
-    popup.document.open();
-    popup.document.write(htmlContent);
-    popup.document.close();
-    popup.focus();
-    setTimeout(() => popup.print(), 250);
   }
 
   selectedOrderTipAmount(): number {
