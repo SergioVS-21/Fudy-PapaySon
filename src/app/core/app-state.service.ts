@@ -537,6 +537,7 @@ export class AppStateService {
       this.createOrderError.set('No se puede crear una comanda sin mesa seleccionada');
       return null;
     }
+    this.checkAndCloseTableSession(tableNumber);
     const normalizedDocumentId = this.normalizeClientDocumentId(clientDocumentId);
     const normalizedItems = draftItems.filter((item) => item.quantity > 0);
     const allowedRestaurants = this.allowedRestaurantIds();
@@ -1004,6 +1005,7 @@ export class AppStateService {
             orderId: order.id,
             status: order.status,
             closedAt: order.closedAt,
+            tableClosedAt: order.tableClosedAt,
             updatedAt: order.updatedAt ?? now,
             paymentMethod: order.paymentMethod,
             paymentReference: order.paymentReference,
@@ -1014,6 +1016,17 @@ export class AppStateService {
           `No fue posible registrar el pago de la orden ${order.id} en Firebase.`
         );
       });
+
+    const affectedTableNumbers = [
+      ...new Set(
+        this.orders()
+          .filter((o) => uniqueOrderIds.includes(o.id))
+          .map((o) => o.tableNumber)
+      )
+    ];
+    affectedTableNumbers.forEach((tbl) => {
+      this.checkAndCloseTableSession(tbl);
+    });
   }
 
   markDelivered(orderId: string): void {
@@ -1033,6 +1046,10 @@ export class AppStateService {
       })
     );
     this.syncOrderById(orderId);
+    const deliveredOrder = this.orders().find((o) => o.id === orderId);
+    if (deliveredOrder) {
+      this.checkAndCloseTableSession(deliveredOrder.tableNumber);
+    }
   }
 
   markItemDelivered(orderId: string, itemId: string): void {
@@ -1067,6 +1084,80 @@ export class AppStateService {
     );
 
     this.syncOrderById(orderId, { silent: true });
+    const itemOrder = this.orders().find((o) => o.id === orderId);
+    if (itemOrder) {
+      this.checkAndCloseTableSession(itemOrder.tableNumber);
+    }
+  }
+
+  checkAndCloseTableSession(tableNumber: number): void {
+    if (typeof tableNumber !== 'number') {
+      return;
+    }
+    const now = new Date().toISOString();
+
+    if (tableNumber <= 0) {
+      const ordersToClose = this.orders().filter(
+        (o) =>
+          o.tableNumber <= 0 &&
+          o.status === 'COBRADO' &&
+          !o.tableClosedAt &&
+          !o.items.some((i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO')
+      );
+      if (!ordersToClose.length) return;
+      const ids = ordersToClose.map((o) => o.id);
+      this.orders.update((orders) =>
+        orders.map((o) => (ids.includes(o.id) ? { ...o, tableClosedAt: now, updatedAt: now } : o))
+      );
+      ids.forEach((id) => this.syncOrderById(id));
+      return;
+    }
+
+    const activeTableOrders = this.orders().filter(
+      (o) => o.tableNumber === tableNumber && o.status !== 'ANULADO' && !o.tableClosedAt
+    );
+    if (!activeTableOrders.length) {
+      return;
+    }
+
+    const allCobrado = activeTableOrders.every((o) => o.status === 'COBRADO');
+    const hasPendingItems = activeTableOrders.some((o) =>
+      o.items.some((i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO')
+    );
+
+    if (allCobrado && !hasPendingItems) {
+      const ids = activeTableOrders.map((o) => o.id);
+      this.orders.update((orders) =>
+        orders.map((o) => (ids.includes(o.id) ? { ...o, tableClosedAt: now, updatedAt: now } : o))
+      );
+      ids.forEach((id) => this.syncOrderById(id));
+    }
+  }
+
+  closeTableSession(tableNumber: number, orderIds?: string[]): void {
+    const now = new Date().toISOString();
+    const idsToClose = orderIds && orderIds.length > 0
+      ? orderIds
+      : this.orders()
+          .filter((o) => o.tableNumber === tableNumber && o.status !== 'ANULADO' && !o.tableClosedAt)
+          .map((o) => o.id);
+
+    if (!idsToClose.length) {
+      return;
+    }
+
+    this.orders.update((orders) =>
+      orders.map((order) => {
+        if (!idsToClose.includes(order.id)) return order;
+        return {
+          ...order,
+          tableClosedAt: now,
+          updatedAt: now
+        };
+      })
+    );
+
+    idsToClose.forEach((id) => this.syncOrderById(id));
   }
 
   updateOrderClient(orderId: string, clientName: string, clientDocumentId: string): void {
@@ -1696,9 +1787,13 @@ export class AppStateService {
           finalStatus = isCobrado ? 'COBRADO' : 'ENTREGADO';
         }
 
+        const tableClosedAt = localOrder.tableClosedAt || remoteOrder.tableClosedAt ||
+          (isCobrado && allItemsDelivered ? (remoteOrder.closedAt || localOrder.closedAt || remoteOrder.updatedAt || new Date().toISOString()) : undefined);
+
         return {
           ...remoteOrder,
           status: finalStatus,
+          tableClosedAt,
           items: allMergedItems,
           updatedAt: localOrderTime > remoteOrderTime ? localOrder.updatedAt : remoteOrder.updatedAt
         };
@@ -2368,6 +2463,7 @@ export class AppStateService {
       status: order.status,
       createdAt: order.createdAt,
       closedAt: order.closedAt,
+      tableClosedAt: order.tableClosedAt,
       paymentMethod: order.paymentMethod,
       paymentReference: order.paymentReference,
       paymentAmountUsd: order.paymentAmountUsd,
@@ -2847,6 +2943,10 @@ export class AppStateService {
 
     if (order.closedAt) {
       orderDoc.closedAt = order.closedAt;
+    }
+
+    if (order.tableClosedAt) {
+      orderDoc.tableClosedAt = order.tableClosedAt;
     }
 
     if (order.paymentMethod) {

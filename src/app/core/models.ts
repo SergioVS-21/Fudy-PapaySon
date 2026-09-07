@@ -122,6 +122,7 @@ export interface Order {
   status: OrderStatus;
   createdAt: string;
   closedAt?: string;
+  tableClosedAt?: string;
   paymentMethod?: PaymentMethod;
   paymentReference?: string;
   paymentAmountUsd?: number;

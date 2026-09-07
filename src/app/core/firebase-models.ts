@@ -130,6 +130,7 @@ export interface OrderDoc {
   createdByUserId?: string;
   createdAt: FirestoreTimestamp;
   closedAt?: FirestoreTimestamp;
+  tableClosedAt?: FirestoreTimestamp;
   cancelledAt?: FirestoreTimestamp;
   cancelledByUserId?: string;
   updatedAt: FirestoreTimestamp;

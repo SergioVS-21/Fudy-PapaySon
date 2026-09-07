@@ -43,6 +43,7 @@ interface DeliveredTableGroup {
   isSingleOrder: boolean;
   hasPendingCobro: boolean;
   payableOrdersCount: number;
+  isClosed?: boolean;
 }
 
 @Component({
@@ -75,14 +76,25 @@ interface DeliveredTableGroup {
 
       @if (ordersViewMode() === 'ENTREGADAS') {
         <div class="panel history-table-container" style="background: #ffffff; border-radius: 1rem; padding: 1.25rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-top: 1rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 0.75rem;">
-            <h2 style="font-size: 1.15rem; font-weight: 900; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-              <i class="bi bi-receipt-cutoff" style="color: #059669;" aria-hidden="true"></i>
-              Historial de Caja y Comandas Entregadas
-            </h2>
-            <span style="font-weight: 800; background: #d1fae5; color: #065f46; padding: 0.25rem 0.65rem; border-radius: 0.75rem; font-size: 0.8rem;">
-              {{ deliveredTableGroups().length }} mesas ({{ deliveredOrdersCount() }} comandas)
-            </span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <h2 style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="bi bi-receipt-cutoff" style="color: #059669;" aria-hidden="true"></i>
+                Historial de Caja y Comandas Entregadas
+              </h2>
+              <span style="font-weight: 800; background: #d1fae5; color: #065f46; padding: 0.25rem 0.65rem; border-radius: 0.75rem; font-size: 0.8rem;">
+                {{ deliveredTableGroups().length }} mesas ({{ deliveredOrdersCount() }} comandas)
+              </span>
+            </div>
+            <button
+              type="button"
+              class="btn-ghost"
+              style="font-size: 0.78rem; padding: 0.35rem 0.7rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.35rem; color: #475569; border: 1px solid #cbd5e1;"
+              (click)="showClosedDelivered.set(!showClosedDelivered())"
+            >
+              <i class="bi" [class.bi-archive]="!showClosedDelivered()" [class.bi-check-circle]="showClosedDelivered()"></i>
+              {{ showClosedDelivered() ? 'Ver solo mesas activas' : 'Ver cuentas cerradas hoy (' + closedTableGroupsCount() + ')' }}
+            </button>
           </div>
 
           <div style="overflow-x: auto;">
@@ -176,6 +188,15 @@ interface DeliveredTableGroup {
                             <i class="bi bi-cash-coin" aria-hidden="true"></i>
                             {{ group.isSingleOrder ? 'Cobrar' : 'Cobrar mesa' }}
                           </button>
+                        } @else if (!group.isClosed) {
+                          <button
+                            type="button"
+                            style="font-size: 0.75rem; font-weight: 800; padding: 0.35rem 0.65rem; background: #0284c7; color: #ffffff; border: none; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);"
+                            title="Cerrar la cuenta de esta mesa y liberarla para el próximo cliente"
+                            (click)="closeTableAccount(group, $event)"
+                          >
+                            <i class="bi bi-door-open" aria-hidden="true"></i> Cerrar mesa
+                          </button>
                         }
                         @if (group.isSingleOrder) {
                           <button
@@ -196,16 +217,16 @@ interface DeliveredTableGroup {
                             <i class="bi" [class.bi-chevron-down]="isTableGroupExpanded(group.key)" [class.bi-chevron-right]="!isTableGroupExpanded(group.key)" aria-hidden="true"></i>
                             {{ isTableGroupExpanded(group.key) ? 'Ocultar' : 'Comandas (' + group.orders.length + ')' }}
                           </button>
-                          <button
-                            type="button"
-                            class="btn-ghost"
-                            style="font-size: 0.75rem; padding: 0.35rem 0.6rem;"
-                            title="Imprimir cuenta total de la mesa"
-                            (click)="$event.stopPropagation(); printTableGroupTicket(group)"
-                          >
-                            <i class="bi bi-printer" aria-hidden="true"></i>
-                          </button>
                         }
+                        <button
+                          type="button"
+                          class="btn-ghost"
+                          style="font-size: 0.75rem; padding: 0.35rem 0.6rem;"
+                          title="Imprimir cuenta total de la mesa"
+                          (click)="$event.stopPropagation(); printTableGroupTicket(group)"
+                        >
+                          <i class="bi bi-printer" aria-hidden="true"></i>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -3881,6 +3902,7 @@ export class OrdersPageComponent {
 
   readonly currentStep = signal(1);
   readonly ordersViewMode = signal<'ACTIVAS' | 'ENTREGADAS'>('ACTIVAS');
+  readonly showClosedDelivered = signal(false);
   readonly expandedTableGroupKeys = signal<Set<string>>(new Set<string>());
   readonly selectedRestaurant = signal<RestaurantId | null>(null);
   readonly selectedNextArea = signal<NextRestobarAreaId>('SALON');
@@ -3972,13 +3994,31 @@ export class OrdersPageComponent {
   readonly userActiveOrders = computed(() => {
     return this.state
       .getVisibleOrdersForModule('comandas')
-      .filter((order) => order.status !== 'ANULADO');
+      .filter((order) => {
+        if (order.status === 'ANULADO' || order.tableClosedAt) return false;
+        if (order.status === 'COBRADO') {
+          const hasActiveItems = order.items.some(
+            (i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO'
+          );
+          if (!hasActiveItems) return false;
+        }
+        return true;
+      });
   });
 
   readonly occupiedTablesByRestaurant = computed(() => {
     const occupied = new Map<RestaurantId, Set<number>>();
 
-    this.userActiveOrders().forEach((order) => {
+    this.state.orders().forEach((order) => {
+      if (order.status === 'ANULADO' || order.tableClosedAt) return;
+      if (order.status === 'COBRADO') {
+        const hasActiveItems = order.items.some(
+          (i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO'
+        );
+        if (!hasActiveItems) return;
+      }
+      if (!this.state.orderMatchesCurrentRestaurants(order)) return;
+
       const restaurantIds = new Set(order.items.map((item) => item.restaurantId));
       restaurantIds.forEach((restaurantId) => {
         const tables = occupied.get(restaurantId) ?? new Set<number>();
@@ -3992,7 +4032,13 @@ export class OrdersPageComponent {
 
   readonly allActiveOrdersForOccupancy = computed(() => {
     return this.state.orders().filter((order) => {
-      if (order.status === 'ANULADO') return false;
+      if (order.status === 'ANULADO' || order.tableClosedAt) return false;
+      if (order.status === 'COBRADO') {
+        const hasActiveItems = order.items.some(
+          (i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO'
+        );
+        if (!hasActiveItems) return false;
+      }
       return order.items.some((i) => i.status !== 'ENTREGADO' && i.status !== 'ANULADO');
     }).filter((order) => this.state.orderMatchesCurrentRestaurants(order));
   });
@@ -4041,18 +4087,42 @@ export class OrdersPageComponent {
       return [];
     }
 
-    const deliveredOrders = this.userActiveOrders().filter((order) => {
+    const showClosed = this.showClosedDelivered();
+
+    const deliveredOrders = this.state.orders().filter((order) => {
+      if (order.status === 'ANULADO') return false;
+      if (!this.state.orderMatchesCurrentRestaurants(order)) return false;
+
+      const role = this.state.currentUserRole();
+      if ((role === 'RUNNER' || role === 'MESONERO') && order.createdByUserId !== this.state.currentUserId()) {
+        return false;
+      }
+
       const hasActiveItems = order.items.some(
         (i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO'
       );
       if (hasActiveItems) return false;
-      return order.status === 'ENTREGADO' || order.status === 'COBRADO';
+
+      if (order.status !== 'ENTREGADO' && order.status !== 'COBRADO') return false;
+
+      if (!showClosed && order.tableClosedAt) {
+        return false;
+      }
+
+      return true;
     });
 
     const groupsMap = new Map<string, Order[]>();
 
     deliveredOrders.forEach((order) => {
-      const key = order.tableNumber > 0 ? `table-${order.tableNumber}` : `order-${order.id}`;
+      let key: string;
+      if (order.tableNumber > 0) {
+        key = order.tableClosedAt
+          ? `table-${order.tableNumber}-closed-${order.tableClosedAt}`
+          : `table-${order.tableNumber}`;
+      } else {
+        key = `order-${order.id}`;
+      }
       const existing = groupsMap.get(key) || [];
       existing.push(order);
       groupsMap.set(key, existing);
@@ -4111,9 +4181,12 @@ export class OrdersPageComponent {
 
       const payableOrders = orders.filter((o) => o.status === 'ENTREGADO');
       const allCobrado = orders.length > 0 && orders.every((o) => o.status === 'COBRADO');
+      const isClosed = orders.length > 0 && orders.every((o) => !!o.tableClosedAt);
       const hasPendingCobro = payableOrders.length > 0;
       const status: Order['status'] = allCobrado ? 'COBRADO' : 'ENTREGADO';
-      const statusLabel = allCobrado
+      const statusLabel = isClosed
+        ? 'Cuenta Cerrada'
+        : allCobrado
         ? 'Cobrado'
         : orders.length > 1 && orders.some((o) => o.status === 'COBRADO')
         ? `${payableOrders.length} por cobrar`
@@ -4136,12 +4209,38 @@ export class OrdersPageComponent {
         statusLabel,
         isSingleOrder: orders.length === 1,
         hasPendingCobro,
-        payableOrdersCount: payableOrders.length
+        payableOrdersCount: payableOrders.length,
+        isClosed
       });
     });
 
     return groups.sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
   });
+
+  readonly closedTableGroupsCount = computed(() => {
+    const closedOrders = this.state.orders().filter((order) => {
+      if (order.status === 'ANULADO' || !order.tableClosedAt) return false;
+      if (!this.state.orderMatchesCurrentRestaurants(order)) return false;
+      const role = this.state.currentUserRole();
+      if ((role === 'RUNNER' || role === 'MESONERO') && order.createdByUserId !== this.state.currentUserId()) {
+        return false;
+      }
+      return true;
+    });
+    const set = new Set<string>();
+    closedOrders.forEach((o) => {
+      const key = o.tableNumber > 0 ? `table-${o.tableNumber}-closed-${o.tableClosedAt}` : `order-${o.id}`;
+      set.add(key);
+    });
+    return set.size;
+  });
+
+  closeTableAccount(group: DeliveredTableGroup, event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    this.state.closeTableSession(group.tableNumber, group.orderIds);
+  }
 
   readonly deliveredOrdersCount = computed(() =>
     this.deliveredTableGroups().reduce((acc, g) => acc + g.orders.length, 0)

@@ -361,6 +361,7 @@ export class FirebaseDataService {
     orderId: string;
     status: OrderDoc['status'];
     closedAt: OrderDoc['closedAt'];
+    tableClosedAt?: OrderDoc['tableClosedAt'];
     updatedAt: OrderDoc['updatedAt'];
     paymentMethod?: OrderDoc['paymentMethod'];
     paymentReference?: OrderDoc['paymentReference'];
@@ -372,6 +373,10 @@ export class FirebaseDataService {
       closedAt: input.closedAt,
       updatedAt: input.updatedAt
     };
+
+    if (input.tableClosedAt) {
+      payload.tableClosedAt = input.tableClosedAt;
+    }
 
     if (typeof input.paymentMethod === 'string') {
       payload.paymentMethod = input.paymentMethod;
