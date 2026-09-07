@@ -533,6 +533,10 @@ export class AppStateService {
     draftItems: DraftItem[]
   ): Promise<Order | null> {
     this.createOrderError.set('');
+    if (!tableNumber || tableNumber <= 0) {
+      this.createOrderError.set('No se puede crear una comanda sin mesa seleccionada');
+      return null;
+    }
     const normalizedDocumentId = this.normalizeClientDocumentId(clientDocumentId);
     const normalizedItems = draftItems.filter((item) => item.quantity > 0);
     const allowedRestaurants = this.allowedRestaurantIds();

@@ -461,8 +461,8 @@ interface DeliveredTableGroup {
               @if (!isPapaAndSonSelected()) {
                 <button type="button" class="step order-step" [class.active]="currentStep() >= 2" [disabled]="!canContinueFromStep1()" (click)="goToStep(2)">2. Cliente</button>
               }
-              <button type="button" class="step order-step" [class.active]="currentStep() >= 3" [disabled]="isPapaAndSonSelected() ? !canContinueFromStep1() : !canContinueFromStep2()" (click)="goToStep(3)">{{ isPapaAndSonSelected() ? '2' : '3' }}. Restaurante</button>
-              <button type="button" class="step order-step" [class.active]="currentStep() >= 4" [disabled]="!selectedRestaurant()" (click)="goToStep(4)">{{ isPapaAndSonSelected() ? '3' : '4' }}. Productos</button>
+              <button type="button" class="step order-step" [class.active]="currentStep() >= 3" [disabled]="!canContinueFromStep1() || (!isPapaAndSonSelected() && !canContinueFromStep2())" (click)="goToStep(3)">{{ isPapaAndSonSelected() ? '2' : '3' }}. Restaurante</button>
+              <button type="button" class="step order-step" [class.active]="currentStep() >= 4" [disabled]="!canContinueFromStep1() || !selectedRestaurant() || (!isPapaAndSonSelected() && !canContinueFromStep2())" (click)="goToStep(4)">{{ isPapaAndSonSelected() ? '3' : '4' }}. Productos</button>
             </div>
 
             <div class="modal-body" [class.with-floating-bar]="currentStep() === 4" [class.table-selection-mode]="currentStep() === 1">
@@ -4345,17 +4345,20 @@ export class OrdersPageComponent {
   }
 
   canContinueFromStep1(): boolean {
-    const selectedRestaurant = this.selectedRestaurant();
-    if (!selectedRestaurant) {
+    if (this.editingOrderId()) {
+      return true;
+    }
+
+    if (!this.selectedRestaurant()) {
       return false;
     }
 
     if (this.isNextRestobarSelected()) {
-      return isNextRestobarTableNumber(this.tableNumber);
+      return isNextRestobarTableNumber(this.tableNumber) && this.tableNumber > 0;
     }
 
     if (this.isPapaAndSonSelected()) {
-      if (!isPapaAndSonTableNumber(this.tableNumber)) {
+      if (!isPapaAndSonTableNumber(this.tableNumber) || this.tableNumber <= 0) {
         return false;
       }
       if (this.getTableOccupancyStatus(this.tableNumber, 'PAPA_Y_SON') === 'OTHERS') {
@@ -4456,6 +4459,13 @@ export class OrdersPageComponent {
 
   openCreateModal(): void {
     this.editingOrderId.set(null);
+    this.tableNumber = 0;
+    this.lines.set([]);
+    this.clientDocumentId = '';
+    this.clientName = '';
+    this.draftClientName = '';
+    this.knownClientName.set('');
+    this.currentStep.set(1);
     const allowedRestaurants = this.state.allowedRestaurantIds();
     this.selectedRestaurant.set(allowedRestaurants.length === 1 ? allowedRestaurants[0] : null);
     if (allowedRestaurants.length === 1 && allowedRestaurants[0] === 'NEXT_RESTOBAR') {
@@ -4520,6 +4530,12 @@ export class OrdersPageComponent {
   }
 
   openConfirmModal(): void {
+    if (!this.editingOrderId() && !this.canContinueFromStep1()) {
+      alert('Debes seleccionar una mesa válida antes de guardar la comanda.');
+      this.goToStep(1);
+      return;
+    }
+
     if (!this.lines().length) {
       return;
     }
@@ -4806,6 +4822,12 @@ export class OrdersPageComponent {
   }
 
   goToStep(step: number): void {
+    if (!this.editingOrderId() && step > 1 && !this.canContinueFromStep1()) {
+      alert('Debes seleccionar una mesa antes de continuar.');
+      this.currentStep.set(1);
+      return;
+    }
+
     if (step >= 2 && this.isPapaAndSonSelected()) {
       this.clientDocumentId = this.tableNumber.toString().padStart(8, '0');
       this.clientName = 'Mesa ' + this.tableNumber;
@@ -5324,9 +5346,16 @@ export class OrdersPageComponent {
     if (this.isSubmittingOrder()) {
       return;
     }
+
+    const orderId = this.editingOrderId();
+    if (!orderId && (!this.tableNumber || this.tableNumber <= 0 || !this.canContinueFromStep1())) {
+      alert('Debes seleccionar una mesa válida para crear la comanda.');
+      this.goToStep(1);
+      return;
+    }
+
     this.isSubmittingOrder.set(true);
     try {
-      const orderId = this.editingOrderId();
       if (orderId) {
         const existing = this.state.orders().find((o) => o.id === orderId);
         if (!this.canAddItemsToOrder(existing)) {
