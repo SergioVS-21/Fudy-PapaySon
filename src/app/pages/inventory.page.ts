@@ -173,12 +173,12 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                       <td><strong>{{ article.name }}</strong></td>
                       <td>{{ restaurantLabel(article.restaurantId) }}</td>
                       <td>{{ article.unit }}</td>
-                      <td>{{ article.quantity | number:'1.0-2' }}</td>
+                      <td>{{ article.quantity | number:'1.0-3' }}</td>
                       <td>
                         @if (article.linkedProducts.length) {
                           <div class="link-badges">
                             @for (link of article.linkedProducts; track link.productId) {
-                              <span class="link-badge">{{ link.productName }} · {{ link.quantityPerSale | number:'1.0-2' }}</span>
+                              <span class="link-badge">{{ link.productName }} · {{ link.quantityPerSale | number:'1.0-3' }}</span>
                             }
                           </div>
                         } @else {
@@ -626,7 +626,7 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                 <label>
                   Valor de esa medida
                   <div style="display: flex; gap: 8px;">
-                    <input type="number" min="0" step="0.01" [(ngModel)]="articleDraft.quantity" name="articleQuantity" required style="flex: 1;" />
+                    <input type="number" min="0" step="any" [(ngModel)]="articleDraft.quantity" name="articleQuantity" required style="flex: 1;" />
                     @if (articleDraft.id && articleDraft.restaurantId === 'PAPA_Y_SON') {
                       <div class="input-with-button" style="display: flex; gap: 4px;">
                         <input type="number" min="0.01" step="0.01" [ngModel]="restockAmount()" (ngModelChange)="restockAmount.set($event)" name="restockAmount" placeholder="Cant. a ingresar" style="width: 140px;" />
@@ -662,8 +662,8 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                           <td>
                             <input
                               type="number"
-                              min="0.01"
-                              step="0.01"
+                              min="0"
+                              step="any"
                               [ngModel]="link.quantityPerSale"
                               (ngModelChange)="updateArticleLinkQuantity(link.productId, $event)"
                               [ngModelOptions]="{ standalone: true }"
@@ -759,8 +759,8 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                       <td>
                         <input
                           type="number"
-                          min="0.01"
-                          step="0.01"
+                          min="0"
+                          step="any"
                           [ngModel]="linkDraftQuantity(product.id)"
                           (ngModelChange)="updateLinkDraftQuantity(product.id, $event)"
                           [ngModelOptions]="{ standalone: true }"
@@ -1748,7 +1748,7 @@ export class InventoryPageComponent {
     { value: 'CAJA', label: 'Caja' }
   ];
 
-  readonly articleUnits: InventoryMeasureUnit[] = ['KG', 'UND', 'LTRS'];
+  readonly articleUnits: string[] = ['UND', 'KG', 'GR', 'LTRS', 'ML', 'PORCION', 'PQTE'];
   readonly promotionBaseCategories: Array<{ value: ProductBaseCategory; label: string }> = [
     { value: 'COMIDA', label: 'Comida' },
     { value: 'BEBIDA', label: 'Bebida' },
@@ -1807,7 +1807,7 @@ export class InventoryPageComponent {
   readonly restockDraftByProduct = signal<Record<string, number>>({});
   readonly articleLinks = signal<InventoryArticle['linkedProducts']>([]);
   readonly linkSearchQuery = signal('');
-  readonly linkQuantityDrafts = signal<Record<string, number>>({});
+  readonly linkQuantityDrafts = signal<Record<string, number | string>>({});
   readonly restockAmount = signal<number | null>(null);
   readonly articleMovements = signal<InventoryMovementDoc[]>([]);
 
@@ -2085,7 +2085,9 @@ export class InventoryPageComponent {
   }
 
   canSaveArticle(): boolean {
-    return this.articleDraft.name.trim().length > 1 && this.articleDraft.quantity >= 0;
+    const rawQty = (this.articleDraft as any).quantity;
+    const parsedQty = typeof rawQty === 'string' ? parseFloat(rawQty.replace(',', '.')) : Number(rawQty);
+    return this.articleDraft.name.trim().length > 1 && Number.isFinite(parsedQty) && parsedQty >= 0;
   }
 
   async createProduct(): Promise<void> {
@@ -2251,7 +2253,11 @@ export class InventoryPageComponent {
     this.articleDraft.id = article?.id ?? '';
     this.articleDraft.name = article?.name ?? '';
     this.articleDraft.restaurantId = article?.restaurantId ?? firstRestaurant;
-    this.articleDraft.unit = article?.unit ?? 'UND';
+    let unit = article?.unit ?? 'UND';
+    if ((unit as any) === 'UNIDAD') unit = 'UND';
+    if ((unit as any) === 'KILOGRAMO' || (unit as any) === 'KGS') unit = 'KG';
+    if ((unit as any) === 'LITRO' || (unit as any) === 'L') unit = 'LTRS';
+    this.articleDraft.unit = unit;
     this.articleDraft.quantity = article?.quantity ?? 0;
     this.articleLinks.set(article?.linkedProducts.map((link) => ({ ...link })) ?? []);
     this.linkSearchQuery.set('');
@@ -2286,12 +2292,26 @@ export class InventoryPageComponent {
       return;
     }
 
+    const rawQty = (this.articleDraft as any).quantity;
+    const parsedQty = typeof rawQty === 'string' ? parseFloat(rawQty.replace(',', '.')) : Number(rawQty);
+    const finalQty = Number.isFinite(parsedQty) && parsedQty >= 0 ? parsedQty : 0;
+
     const payload = {
-      name: this.articleDraft.name,
+      name: this.articleDraft.name.trim(),
       restaurantId: this.articleDraft.restaurantId,
       unit: this.articleDraft.unit,
-      quantity: this.articleDraft.quantity,
+      quantity: finalQty,
       linkedProducts: this.articleLinks()
+        .map((link) => {
+          const raw = (link as any).quantityPerSale;
+          const num = typeof raw === 'string' ? parseFloat(raw.replace(',', '.')) : parseFloat(String(raw));
+          return {
+            productId: link.productId,
+            productName: link.productName,
+            quantityPerSale: Number.isFinite(num) && num > 0 ? num : 1
+          };
+        })
+        .filter((link) => link.productId && link.quantityPerSale > 0)
     };
 
     if (this.articleDraft.id) {
@@ -2337,21 +2357,48 @@ export class InventoryPageComponent {
     this.linkSearchQuery.set('');
   }
 
-  linkDraftQuantity(productId: string): number {
+  linkDraftQuantity(productId: string): number | string {
+    const draft = this.linkQuantityDrafts()[productId];
+    if (draft !== undefined && draft !== null) {
+      return draft;
+    }
     const existing = this.articleLinks().find((link) => link.productId === productId)?.quantityPerSale;
-    return this.linkQuantityDrafts()[productId] ?? existing ?? 1;
+    return existing ?? 1;
   }
 
-  updateLinkDraftQuantity(productId: string, value: string | number): void {
-    const numeric = Number(value);
+  updateLinkDraftQuantity(productId: string, value: string | number | null | undefined): void {
+    if (value === null || value === undefined || value === '') {
+      this.linkQuantityDrafts.update((draft) => ({
+        ...draft,
+        [productId]: ''
+      }));
+      return;
+    }
+    const normalized = typeof value === 'string' ? value.replace(',', '.') : value;
+    const numeric = Number(normalized);
     this.linkQuantityDrafts.update((draft) => ({
       ...draft,
-      [productId]: Number.isFinite(numeric) && numeric > 0 ? numeric : 1
+      [productId]: Number.isFinite(numeric) ? (typeof value === 'string' ? value : numeric) : value
     }));
   }
 
   attachProductLink(product: Product): void {
-    const quantityPerSale = this.linkDraftQuantity(product.id);
+    const draftVal = this.linkQuantityDrafts()[product.id];
+    let quantityPerSale = 1;
+    if (draftVal !== undefined && draftVal !== null && draftVal !== '') {
+      const normalized = typeof draftVal === 'string' ? draftVal.replace(',', '.') : draftVal;
+      const parsed = parseFloat(String(normalized));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        quantityPerSale = parsed;
+      } else {
+        alert('Por favor ingresa una cantidad válida mayor a 0 (ej: 0.5 o 1).');
+        return;
+      }
+    } else {
+      const existing = this.articleLinks().find((link) => link.productId === product.id)?.quantityPerSale;
+      quantityPerSale = (existing && existing > 0) ? existing : 1;
+    }
+
     this.articleLinks.update((links) => {
       const existing = links.find((link) => link.productId === product.id);
       if (existing) {
@@ -2373,11 +2420,18 @@ export class InventoryPageComponent {
     });
   }
 
-  updateArticleLinkQuantity(productId: string, value: string | number): void {
-    const numeric = Number(value);
-    const quantityPerSale = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+  updateArticleLinkQuantity(productId: string, value: string | number | null | undefined): void {
+    if (value === '' || value === null || value === undefined) {
+      this.articleLinks.update((links) =>
+        links.map((link) => (link.productId === productId ? { ...link, quantityPerSale: '' as any } : link))
+      );
+      return;
+    }
+    const normalized = typeof value === 'string' ? value.replace(',', '.') : value;
+    const numeric = Number(normalized);
+    const quantityPerSale = Number.isFinite(numeric) ? (typeof value === 'string' ? value : numeric) : (value as any);
     this.articleLinks.update((links) =>
-      links.map((link) => (link.productId === productId ? { ...link, quantityPerSale } : link))
+      links.map((link) => (link.productId === productId ? { ...link, quantityPerSale: quantityPerSale as any } : link))
     );
   }
 

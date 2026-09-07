@@ -1375,12 +1375,15 @@ export class AppStateService {
     linkedProducts: InventoryArticle['linkedProducts'];
   }): InventoryArticle {
     const now = new Date().toISOString();
+    const rawQty = input.quantity as any;
+    const parsedQty = typeof rawQty === 'string' ? parseFloat(rawQty.replace(',', '.')) : Number(rawQty);
+    const safeQty = Number.isFinite(parsedQty) && parsedQty >= 0 ? parsedQty : 0;
     const article: InventoryArticle = {
       id: this.nextInventoryArticleId(),
       name: input.name.trim(),
       restaurantId: input.restaurantId,
       unit: input.unit,
-      quantity: Math.max(input.quantity, 0),
+      quantity: safeQty,
       linkedProducts: input.linkedProducts
         .filter((link) => link.productId && link.quantityPerSale > 0)
         .map((link) => ({
@@ -1405,6 +1408,9 @@ export class AppStateService {
     quantity: number;
     linkedProducts: InventoryArticle['linkedProducts'];
   }): void {
+    const rawQty = input.quantity as any;
+    const parsedQty = typeof rawQty === 'string' ? parseFloat(rawQty.replace(',', '.')) : Number(rawQty);
+    const safeQty = Number.isFinite(parsedQty) && parsedQty >= 0 ? parsedQty : 0;
     const now = new Date().toISOString();
     this.inventoryArticles.update((articles) =>
       articles.map((article) =>
@@ -1414,7 +1420,7 @@ export class AppStateService {
               name: input.name.trim(),
               restaurantId: input.restaurantId,
               unit: input.unit,
-              quantity: Math.max(input.quantity, 0),
+              quantity: safeQty,
               linkedProducts: input.linkedProducts
                 .filter((link) => link.productId && link.quantityPerSale > 0)
                 .map((link) => ({

@@ -85,7 +85,7 @@ export class FirebaseDataService {
 
   async listInventoryArticles(): Promise<InventoryArticleDoc[]> {
     const snapshot = await getDocs(this.inventoryArticlesCollection);
-    return snapshot.docs.map((item) => item.data() as InventoryArticleDoc);
+    return snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as any) } as InventoryArticleDoc));
   }
 
   async listOrders(): Promise<OrderDoc[]> {
@@ -232,7 +232,7 @@ export class FirebaseDataService {
   }
 
   async saveInventoryArticle(input: InventoryArticleDoc): Promise<void> {
-    await setDoc(doc(this.inventoryArticlesCollection, input.id), input);
+    await setDoc(doc(this.inventoryArticlesCollection, input.id), input, { merge: true });
   }
 
   async uploadProductImage(input: {

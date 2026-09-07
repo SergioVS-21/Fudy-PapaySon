@@ -16,7 +16,7 @@ export type OrderSource = 'MESONERO' | 'QR';
 export type OrderStatus = 'PENDIENTE' | 'EN_PROCESO' | 'LISTO' | 'ENTREGADO' | 'COBRADO' | 'ANULADO';
 export type PaymentVerificationStatus = 'PENDIENTE' | 'VERIFICADO' | 'RECHAZADO';
 export type PaymentMethod = 'EFECTIVO' | 'PAGO_MOVIL' | 'TRANSFERENCIA' | 'TARJETA' | 'OTRO' | 'EFECTIVO_BS' | 'EFECTIVO_USD' | 'PUNTO' | 'CASHEA';
-export type InventoryMeasureUnit = 'KG' | 'UND' | 'LTRS';
+export type InventoryMeasureUnit = 'KG' | 'UND' | 'LTRS' | 'GR' | 'ML' | 'PORCION' | 'PQTE' | string;
 export type OrderCounterKey = RestaurantId | 'GLOBAL';
 
 export interface Restaurant {
