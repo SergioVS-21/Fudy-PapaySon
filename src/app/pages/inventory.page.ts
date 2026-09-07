@@ -239,8 +239,10 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                       <div class="promotion-summary-chip">Incluye: {{ promotionCategorySummary(newProduct.promotionCategories) }}</div>
                     }
 
-                    <div class="preview-metric-row">
-                      <span>Precio: {{ newProduct.price }}</span>
+                    <div class="preview-metric-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.8rem;">
+                      <span>Subt: \${{ newProduct.price }}</span>
+                      <span>+IVA (16%): \${{ (newProduct.price * 0.16) | number:'1.2-2' }}</span>
+                      <strong style="color: #059669;">Total: \${{ (newProduct.price * 1.16) | number:'1.2-2' }}</strong>
                       <span>Stock inicial: {{ newProduct.stock }}</span>
                     </div>
                   </div>
@@ -346,8 +348,11 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
 
                 <div class="editor-grid editor-grid-two price-stock-grid">
                   <label class="editor-field compact-control-field">
-                    <span>Precio</span>
+                    <span>Precio (Subtotal sin IVA)</span>
                     <input type="number" min="1" [(ngModel)]="newProduct.price" name="price" required />
+                    <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px;">
+                      +IVA (16%): \${{ (newProduct.price * 0.16) | number:'1.2-2' }} · <strong style="color: #059669;">Total: \${{ (newProduct.price * 1.16) | number:'1.2-2' }}</strong>
+                    </small>
                   </label>
 
                   <label class="editor-field compact-control-field">
@@ -391,6 +396,10 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                       <small class="product-description">{{ product.description }}</small>
                     }
                     <small>{{ product.area }} - {{ selectedCategoryGroup()!.group.label }}</small>
+                    <div style="display: flex; flex-direction: column; gap: 1px; margin-top: 3px; font-size: 0.8rem;">
+                      <span style="color: #64748b;">Subt: \${{ product.price }} · +IVA: \${{ (product.price * 0.16) | number:'1.2-2' }}</span>
+                      <strong style="color: #059669;">Total: \${{ (product.price * 1.16) | number:'1.2-2' }}</strong>
+                    </div>
                     <small>Vendidas: {{ product.soldQuantity }}</small>
                   </div>
 
@@ -439,7 +448,9 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
                       <p class="draft-description">{{ editProduct.description }}</p>
                     }
 
-                    <div class="preview-stat-pills">
+                    <div class="preview-stat-pills" style="display: flex; flex-direction: column; gap: 2px;">
+                      <span style="color: #64748b; font-size: 0.8rem;">Subt: \${{ editProduct.price }} · +IVA: \${{ (editProduct.price * 0.16) | number:'1.2-2' }}</span>
+                      <strong style="color: #059669; font-size: 0.85rem;">Total: \${{ (editProduct.price * 1.16) | number:'1.2-2' }}</strong>
                       <span>Vendidas: {{ soldByProduct().get(editProduct.id) ?? 0 }}</span>
                     </div>
 
@@ -555,8 +566,11 @@ type ArticleSortColumn = 'name' | 'restaurant' | 'unit' | 'quantity' | 'links';
 
                 <div class="editor-grid editor-grid-two price-stock-grid">
                   <label class="editor-field compact-control-field">
-                    <span>Precio</span>
+                    <span>Precio (Subtotal sin IVA)</span>
                     <input type="number" min="0" [(ngModel)]="editProduct.price" name="editPrice" required />
+                    <small style="color: #64748b; font-size: 0.75rem; margin-top: 2px;">
+                      +IVA (16%): \${{ (editProduct.price * 0.16) | number:'1.2-2' }} · <strong style="color: #059669;">Total: \${{ (editProduct.price * 1.16) | number:'1.2-2' }}</strong>
+                    </small>
                   </label>
 
                   <label class="editor-field compact-control-field">

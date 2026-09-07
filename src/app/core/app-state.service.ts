@@ -631,9 +631,25 @@ export class AppStateService {
     return order;
   }
 
+  isOrderDelivered(order: Order): boolean {
+    if (order.status === 'ENTREGADO') {
+      return true;
+    }
+    const nonCanceled = order.items.filter((item) => item.status !== 'ANULADO');
+    if (!nonCanceled.length) {
+      return false;
+    }
+    return nonCanceled.every((item) => item.status === 'ENTREGADO');
+  }
+
   appendItemsToOrder(orderId: string, draftItems: DraftItem[]): Order | null {
     const order = this.orders().find((item) => item.id === orderId);
     if (!order) {
+      return null;
+    }
+
+    if (this.isOrderDelivered(order) || order.status === 'ANULADO') {
+      console.warn(`[AppState] Cannot add items to delivered or closed order ${orderId}`);
       return null;
     }
 
@@ -1607,18 +1623,77 @@ export class AppStateService {
       const orderDocs = await this.firebaseData.listOrders();
       const orderIds = orderDocs.map((orderDoc) => orderDoc.id);
       const itemsByOrderId = await this.firebaseData.listOrderItemsByOrderIds(orderIds);
-      const orders = orderDocs.map((orderDoc) =>
+      const remoteOrders = orderDocs.map((orderDoc) =>
         this.mapOrderDocToOrder(orderDoc, itemsByOrderId[orderDoc.id] ?? [])
       );
 
+      const currentOrders = this.orders();
+      const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
+
+      const mergedOrders = remoteOrders.map((remoteOrder) => {
+        const localOrder = currentOrdersById.get(remoteOrder.id);
+        if (!localOrder) {
+          return remoteOrder;
+        }
+
+        const localItemsById = new Map(localOrder.items.map((i) => [i.id, i]));
+        const mergedItems = remoteOrder.items.map((remoteItem) => {
+          const localItem = localItemsById.get(remoteItem.id);
+          if (!localItem) {
+            return remoteItem;
+          }
+
+          const localTime = new Date(localItem.updatedAt ?? 0).getTime();
+          const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
+
+          // Si la acción local es más reciente que los datos de Firebase, preservarla
+          if (localTime > remoteTime) {
+            return localItem;
+          }
+          return remoteItem;
+        });
+
+        const remoteItemIds = new Set(remoteOrder.items.map((i) => i.id));
+        const extraLocalItems = localOrder.items.filter((i) => !remoteItemIds.has(i.id));
+        const allMergedItems = [...mergedItems, ...extraLocalItems];
+
+        const localOrderTime = new Date(localOrder.updatedAt ?? 0).getTime();
+        const remoteOrderTime = new Date(remoteOrder.updatedAt ?? 0).getTime();
+
+        const allItemsDelivered =
+          allMergedItems.length > 0 &&
+          allMergedItems.every(
+            (item) => item.status === 'ENTREGADO' || item.status === 'ANULADO'
+          );
+
+        let finalStatus = remoteOrder.status;
+        if (localOrderTime > remoteOrderTime) {
+          finalStatus = localOrder.status;
+        }
+        if (allItemsDelivered && finalStatus !== 'ANULADO') {
+          finalStatus = 'ENTREGADO';
+        }
+
+        return {
+          ...remoteOrder,
+          status: finalStatus,
+          items: allMergedItems,
+          updatedAt: localOrderTime > remoteOrderTime ? localOrder.updatedAt : remoteOrder.updatedAt
+        };
+      });
+
+      const remoteOrderIds = new Set(remoteOrders.map((o) => o.id));
+      const newlyCreatedLocalOrders = currentOrders.filter((o) => !remoteOrderIds.has(o.id));
+      const finalOrders = [...mergedOrders, ...newlyCreatedLocalOrders];
+
       this.orders.set(
-        orders.sort(
+        finalOrders.sort(
           (left, right) =>
             new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
         )
       );
 
-      this.queueVerifiedPaymentNotifications(orders);
+      this.queueVerifiedPaymentNotifications(finalOrders);
 
       this.runtimeDataError.set('');
 
@@ -2800,7 +2875,9 @@ export class AppStateService {
       orderDoc.cancelledByUserId = order.cancelledByUserId;
     }
 
-    return orderDoc;
+    return Object.fromEntries(
+      Object.entries(orderDoc).filter(([_, v]) => v !== undefined)
+    ) as unknown as OrderDoc;
   }
 
   private queueVerifiedPaymentNotifications(orders: Order[]): void {
@@ -2882,8 +2959,13 @@ export class AppStateService {
       unitPrice: item.unitPrice,
       lineTotal: item.quantity * item.unitPrice,
       status: item.status,
-      subItems: item.subItems,
-      mainReady: item.mainReady,
+      subItems: item.subItems?.map((sub) => ({
+        name: sub.name,
+        area: sub.area,
+        quantity: sub.quantity,
+        ready: !!sub.ready
+      })),
+      mainReady: !!item.mainReady,
       createdAt: item.createdAt ?? item.updatedAt ?? new Date().toISOString(),
       updatedAt: item.updatedAt ?? new Date().toISOString()
     };

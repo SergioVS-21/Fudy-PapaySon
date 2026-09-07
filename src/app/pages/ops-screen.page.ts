@@ -597,9 +597,10 @@ interface AreaSection {
                     }
                   </div>
                   <div class="align-end" style="display: flex; align-items: center; gap: 0.6rem;">
-                    <div style="text-align: right;">
+                    <div style="text-align: right; line-height: 1.2;">
                       <small>x{{ item.quantity }}</small>
-                      <div><strong>{{ item.quantity * item.unitPrice | currency:'USD' }}</strong></div>
+                      <div style="font-size: 0.75rem; color: #64748b;">Subt: {{ item.quantity * item.unitPrice | currency:'USD' }}</div>
+                      <div><strong style="color: #059669; font-size: 0.85rem;">Total: {{ (item.quantity * item.unitPrice * 1.16) | currency:'USD' }}</strong></div>
                     </div>
                     @if (isItemReadyForArea(item, selectedArea())) {
                       <span class="ops-item-ready-badge">
@@ -620,9 +621,22 @@ interface AreaSection {
               }
             </div>
 
-            <div class="ops-side-total-row total">
-              <span>Total</span>
-              <strong>{{ orderTotal(selectedOrder()!) | currency:'USD' }}</strong>
+            <div class="ops-side-total-row" style="display: flex; flex-direction: column; gap: 4px; padding: 0.65rem 0; border-top: 1px dashed #e2e8f0; margin-top: 0.5rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>Subtotal (sin IVA):</span>
+                <span>{{ orderTotal(selectedOrder()!) | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b;">
+                <span>+IVA (16%):</span>
+                <span>{{ (orderTotal(selectedOrder()!) * 0.16) | currency:'USD' }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 800; color: #059669;">
+                <span>Total:</span>
+                <span>{{ (orderTotal(selectedOrder()!) * 1.16) | currency:'USD' }}</span>
+              </div>
+              <div style="text-align: right; font-size: 0.8rem; color: #6b7280;">
+                <span>Total Bs: {{ (orderTotal(selectedOrder()!) * 1.16 * bcvRate()) | number:'1.2-2' }} Bs</span>
+              </div>
             </div>
 
             @if (hasPendingItems(selectedOrder()!, selectedArea())) {
@@ -1494,6 +1508,7 @@ export class OpsScreenPageComponent {
   readonly canAccessOperations = computed(() => this.state.canAccessModule('operacion'));
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
   readonly dataError = computed(() => this.state.runtimeDataError());
+  readonly bcvRate = computed(() => this.state.appSettings().bcvRate);
   private readonly allAreaOptions: Array<{ label: string; value: AreaId | 'ALL' }> = [
     { label: 'Todos', value: 'ALL' },
     { label: 'Cocina', value: 'COCINA' },

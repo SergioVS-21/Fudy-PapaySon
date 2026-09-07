@@ -282,14 +282,14 @@ export class FirebaseDataService {
         throw new Error(`La comanda ${input.order.id} ya existe en la base de datos. No se puede sobrescribir.`);
       }
 
-      transaction.set(orderRef, input.order);
+      transaction.set(orderRef, sanitizeForFirestore(input.order));
 
       input.items.forEach((item) => {
-        transaction.set(doc(this.orderItemsCollection, item.id), item);
+        transaction.set(doc(this.orderItemsCollection, item.id), sanitizeForFirestore(item));
       });
 
       input.inventoryMovements?.forEach((movement) => {
-        transaction.set(doc(this.inventoryMovementsCollection, movement.id), movement);
+        transaction.set(doc(this.inventoryMovementsCollection, movement.id), sanitizeForFirestore(movement));
       });
     });
   }
@@ -299,20 +299,25 @@ export class FirebaseDataService {
     items: OrderItemDoc[];
     deletedItemIds?: string[];
   }): Promise<void> {
-    const batch = writeBatch(firestoreDb);
+    try {
+      const batch = writeBatch(firestoreDb);
 
-    // Usar merge:true para no sobrescribir campos que otros usuarios pudieran haber actualizado en paralelo.
-    batch.set(doc(this.ordersCollection, input.order.id), input.order, { merge: true });
+      // Usar merge:true para no sobrescribir campos que otros usuarios pudieran haber actualizado en paralelo.
+      batch.set(doc(this.ordersCollection, input.order.id), sanitizeForFirestore(input.order), { merge: true });
 
-    input.items.forEach((item) => {
-      batch.set(doc(this.orderItemsCollection, item.id), item, { merge: true });
-    });
+      input.items.forEach((item) => {
+        batch.set(doc(this.orderItemsCollection, item.id), sanitizeForFirestore(item), { merge: true });
+      });
 
-    input.deletedItemIds?.forEach((itemId) => {
-      batch.delete(doc(this.orderItemsCollection, itemId));
-    });
+      input.deletedItemIds?.forEach((itemId) => {
+        batch.delete(doc(this.orderItemsCollection, itemId));
+      });
 
-    await batch.commit();
+      await batch.commit();
+    } catch (error) {
+      console.error('[Firebase] Error al guardar orden o artículos en saveOrderSnapshot:', error);
+      throw error;
+    }
   }
 
   async deleteOrderItem(itemId: string): Promise<void> {
@@ -387,3 +392,25 @@ export class FirebaseDataService {
     await updateDoc(doc(this.ordersCollection, input.orderId), payload);
   }
 }
+
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined) {
+    return null as unknown as T;
+  }
+  if (data === null || typeof data !== 'object') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    if (value !== undefined) {
+      clean[key] = sanitizeForFirestore(value);
+    }
+  }
+  return clean as T;
+}
+
