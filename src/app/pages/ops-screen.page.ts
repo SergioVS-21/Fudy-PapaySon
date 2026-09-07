@@ -135,7 +135,7 @@ interface AreaSection {
                       @for (order of section.orders; track order.id) {
                         <article
                           class="ops-order-card clickable-card"
-                          [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
+                          [class]="'ops-order-card clickable-card ' + (isOrderAllDelivered(order, section.area) ? 'all-delivered ' : '') + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
                           (click)="openDetail(order.id)"
                         >
                           <div class="ops-order-head">
@@ -153,7 +153,11 @@ interface AreaSection {
                                 <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
                                 <small>{{ order.clientName }}</small>
                               }
-                              @if (order.status === 'COBRADO') {
+                              @if (isOrderAllDelivered(order, section.area)) {
+                                <span style="font-size: 0.68rem; font-weight: 800; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 0.12rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.2rem;">
+                                  <i class="bi bi-check-circle-fill" aria-hidden="true"></i> RETIRADA
+                                </span>
+                              } @else if (order.status === 'COBRADO') {
                                 <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
                                   <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
                                 </span>
@@ -167,14 +171,18 @@ interface AreaSection {
                             <ul class="ops-preview-list">
                               @for (item of previewItems(order); track item.id) {
                                 <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
-                                  <span [style.text-decoration]="isItemReadyForArea(item, section.area) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, section.area) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
+                                  <span [style.text-decoration]="item.status === 'ENTREGADO' || isItemReadyForArea(item, section.area) ? 'line-through' : 'none'" [style.opacity]="item.status === 'ENTREGADO' ? '0.6' : (isItemReadyForArea(item, section.area) ? '0.75' : '1')" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
                                     <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
                                     <span>{{ item.productName }}</span>
                                     @if (item.note) {
                                       <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
                                     }
                                   </span>
-                                  @if (isItemReadyForArea(item, section.area)) {
+                                  @if (item.status === 'ENTREGADO') {
+                                    <span class="ops-item-delivered-badge" style="font-size: 0.72rem; font-weight: 800; color: #15803d; background: #dcfce7; border: 1px solid #86efac; padding: 0.15rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                                      <i class="bi bi-check2-all" aria-hidden="true"></i> Ya retirado
+                                    </span>
+                                  } @else if (isItemReadyForArea(item, section.area)) {
                                     <span class="ops-item-ready-badge">
                                       <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
                                     </span>
@@ -204,7 +212,7 @@ interface AreaSection {
                               </button>
                             } @else {
                               <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> {{ isOrderAllDelivered(order, section.area) ? 'RETIRADA' : 'LISTO' }}
                               </span>
                               <button
                                 type="button"
@@ -268,7 +276,7 @@ interface AreaSection {
                     @for (order of allAreaOrders(); track order.id) {
                       <article
                         class="ops-order-card clickable-card"
-                        [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
+                        [class]="'ops-order-card clickable-card ' + (isOrderAllDelivered(order, 'ALL') ? 'all-delivered ' : '') + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
                         (click)="openDetail(order.id)"
                       >
                         <div class="ops-order-head">
@@ -286,7 +294,11 @@ interface AreaSection {
                               <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
                               <small>{{ order.clientName }}</small>
                             }
-                            @if (order.status === 'COBRADO') {
+                            @if (isOrderAllDelivered(order, 'ALL')) {
+                              <span style="font-size: 0.68rem; font-weight: 800; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 0.12rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.2rem;">
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> RETIRADA
+                              </span>
+                            } @else if (order.status === 'COBRADO') {
                               <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
                                 <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
                               </span>
@@ -300,7 +312,7 @@ interface AreaSection {
                           <ul class="ops-preview-list">
                             @for (item of previewItems(order); track item.id) {
                               <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
-                                <span [style.text-decoration]="isItemReadyForArea(item, item.area) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, item.area) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b; flex-wrap: wrap;">
+                                <span [style.text-decoration]="item.status === 'ENTREGADO' || isItemReadyForArea(item, item.area) ? 'line-through' : 'none'" [style.opacity]="item.status === 'ENTREGADO' ? '0.6' : (isItemReadyForArea(item, item.area) ? '0.75' : '1')" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b; flex-wrap: wrap;">
                                   <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
                                   <span>{{ item.productName }}</span>
                                   <span style="font-size: 0.65rem; font-weight: 800; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; padding: 0.1rem 0.35rem; border-radius: 0.35rem;">
@@ -310,7 +322,11 @@ interface AreaSection {
                                     <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
                                   }
                                 </span>
-                                @if (isItemReadyForArea(item, item.area)) {
+                                @if (item.status === 'ENTREGADO') {
+                                  <span class="ops-item-delivered-badge" style="font-size: 0.72rem; font-weight: 800; color: #15803d; background: #dcfce7; border: 1px solid #86efac; padding: 0.15rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                                    <i class="bi bi-check2-all" aria-hidden="true"></i> Ya retirado
+                                  </span>
+                                } @else if (isItemReadyForArea(item, item.area)) {
                                   <span class="ops-item-ready-badge">
                                     <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
                                   </span>
@@ -340,7 +356,7 @@ interface AreaSection {
                             </button>
                           } @else {
                             <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
+                              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> {{ isOrderAllDelivered(order, 'ALL') ? 'RETIRADA' : 'LISTO' }}
                             </span>
                             <button
                               type="button"
@@ -405,7 +421,7 @@ interface AreaSection {
                     @for (order of section.orders; track order.id) {
                       <article
                         class="ops-order-card clickable-card"
-                        [class]="'ops-order-card clickable-card ' + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
+                        [class]="'ops-order-card clickable-card ' + (isOrderAllDelivered(order, selectedArea()) ? 'all-delivered ' : '') + statusClass(order.status) + (selectedOrder()?.id === order.id ? ' selected' : '')"
                         (click)="openDetail(order.id)"
                       >
                         <div class="ops-order-head">
@@ -423,7 +439,11 @@ interface AreaSection {
                               <strong>{{ order.items.length }} items | Mesa {{ tableLabel(order) }}</strong>
                               <small>{{ order.clientName }}</small>
                             }
-                            @if (order.status === 'COBRADO') {
+                            @if (isOrderAllDelivered(order, selectedArea())) {
+                              <span style="font-size: 0.68rem; font-weight: 800; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 0.12rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.2rem;">
+                                <i class="bi bi-check-circle-fill" aria-hidden="true"></i> RETIRADA
+                              </span>
+                            } @else if (order.status === 'COBRADO') {
                               <span style="font-size: 0.68rem; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; padding: 0.1rem 0.4rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.2rem; margin-top: 0.2rem;">
                                 <i class="bi bi-cash-coin" aria-hidden="true"></i> COBRADO
                               </span>
@@ -437,14 +457,18 @@ interface AreaSection {
                           <ul class="ops-preview-list">
                             @for (item of previewItems(order); track item.id) {
                               <li style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.2rem 0; border-bottom: 1px dashed #f1f5f9;">
-                                <span [style.text-decoration]="isItemReadyForArea(item, selectedArea()) ? 'line-through' : 'none'" [style.opacity]="isItemReadyForArea(item, selectedArea()) ? '0.65' : '1'" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
+                                <span [style.text-decoration]="item.status === 'ENTREGADO' || isItemReadyForArea(item, selectedArea()) ? 'line-through' : 'none'" [style.opacity]="item.status === 'ENTREGADO' ? '0.6' : (isItemReadyForArea(item, selectedArea()) ? '0.75' : '1')" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 700; color: #1e293b;">
                                   <span style="font-weight: 800; color: #0284c7;">{{ item.quantity }}x</span>
                                   <span>{{ item.productName }}</span>
                                   @if (item.note) {
                                     <small style="color: #ea580c; font-size: 0.72rem; font-weight: 600;">({{ item.note }})</small>
                                   }
                                 </span>
-                                @if (isItemReadyForArea(item, selectedArea())) {
+                                @if (item.status === 'ENTREGADO') {
+                                  <span class="ops-item-delivered-badge" style="font-size: 0.72rem; font-weight: 800; color: #15803d; background: #dcfce7; border: 1px solid #86efac; padding: 0.15rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                                    <i class="bi bi-check2-all" aria-hidden="true"></i> Ya retirado
+                                  </span>
+                                } @else if (isItemReadyForArea(item, selectedArea())) {
                                   <span class="ops-item-ready-badge">
                                     <i class="bi bi-check-lg" aria-hidden="true"></i> LISTO
                                   </span>
@@ -474,7 +498,7 @@ interface AreaSection {
                             </button>
                           } @else {
                             <span style="font-size: 0.76rem; font-weight: 800; color: #065f46; background: #d1fae5; border: 1px solid #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> LISTO
+                              <i class="bi bi-check-circle-fill" aria-hidden="true"></i> {{ isOrderAllDelivered(order, selectedArea()) ? 'RETIRADA' : 'LISTO' }}
                             </span>
                             <button
                               type="button"
@@ -602,7 +626,11 @@ interface AreaSection {
                       <div style="font-size: 0.75rem; color: #64748b;">Subt: {{ item.quantity * item.unitPrice | currency:'USD' }}</div>
                       <div><strong style="color: #059669; font-size: 0.85rem;">Total: {{ (item.quantity * item.unitPrice * 1.16) | currency:'USD' }}</strong></div>
                     </div>
-                    @if (isItemReadyForArea(item, selectedArea())) {
+                    @if (item.status === 'ENTREGADO') {
+                      <span class="ops-item-delivered-badge" style="font-size: 0.72rem; font-weight: 800; color: #15803d; background: #dcfce7; border: 1px solid #86efac; padding: 0.15rem 0.45rem; border-radius: 0.4rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                        <i class="bi bi-check2-all" aria-hidden="true"></i> Ya retirado
+                      </span>
+                    } @else if (isItemReadyForArea(item, selectedArea())) {
                       <span class="ops-item-ready-badge">
                         <i class="bi bi-check-lg" aria-hidden="true"></i> Listo
                       </span>
@@ -646,6 +674,16 @@ interface AreaSection {
                 (click)="markAllReadyInSidePanel(selectedOrder()!.id)"
               >
                 <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Marcar estación lista
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="btn-dismiss-order-btn"
+                style="width: 100%; margin-top: 0.75rem; font-size: 0.85rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.6rem 1rem; border-radius: 0.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.4rem;"
+                title="Dejar de mostrar esta comanda en la pantalla"
+                (click)="dismissOrder(selectedOrder()!.id)"
+              >
+                <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar comanda
               </button>
             }
 
@@ -1195,6 +1233,39 @@ interface AreaSection {
       background: #ffffff;
     }
 
+    .ops-order-card.all-delivered {
+      background: #f0fdf4 !important;
+      border: 2px solid #22c55e !important;
+      box-shadow: 0 4px 14px rgba(34, 197, 94, 0.16) !important;
+    }
+
+    .ops-order-card.all-delivered .ops-order-head strong {
+      color: #15803d !important;
+    }
+
+    .ops-order-card.all-delivered .ops-order-label {
+      color: #166534 !important;
+    }
+
+    .ops-item-delivered-badge {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #15803d;
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.4rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .btn-dismiss-order-btn:hover {
+      background: #fee2e2 !important;
+      border-color: #f87171 !important;
+      color: #b91c1c !important;
+    }
+
     .ops-order-head {
       display: flex;
       justify-content: space-between;
@@ -1559,8 +1630,28 @@ export class OpsScreenPageComponent {
     });
   }
 
+  private loadDismissedOrderIds(): Set<string> {
+    try {
+      const saved = localStorage.getItem('ops_dismissed_orders');
+      if (saved) {
+        return new Set(JSON.parse(saved));
+      }
+    } catch {
+      // ignore
+    }
+    return new Set();
+  }
+
+  private saveDismissedOrderIds(set: Set<string>): void {
+    try {
+      localStorage.setItem('ops_dismissed_orders', JSON.stringify([...set]));
+    } catch {
+      // ignore
+    }
+  }
+
   readonly dismissedItemIds = signal<Set<string>>(new Set());
-  readonly dismissedOrderIds = signal<Set<string>>(new Set());
+  readonly dismissedOrderIds = signal<Set<string>>(this.loadDismissedOrderIds());
 
   dismissItem(itemId: string): void {
     this.dismissedItemIds.update((set) => {
@@ -1574,8 +1665,12 @@ export class OpsScreenPageComponent {
     this.dismissedOrderIds.update((set) => {
       const next = new Set(set);
       next.add(orderId);
+      this.saveDismissedOrderIds(next);
       return next;
     });
+    if (this.selectedOrderId() === orderId) {
+      this.closeDetail();
+    }
   }
 
   isItemDismissed(itemId: string): boolean {
@@ -1704,7 +1799,7 @@ export class OpsScreenPageComponent {
       .map((order) => ({
         ...order,
         items: order.items.filter((item) => {
-          if (this.isItemDismissed(item.id) || item.status === 'ENTREGADO' || item.status === 'ANULADO') {
+          if (this.isItemDismissed(item.id) || item.status === 'ANULADO') {
             return false;
           }
 
@@ -1800,7 +1895,7 @@ export class OpsScreenPageComponent {
   }
 
   isItemReadyForArea(item: OrderItem, area?: AreaId | 'ALL'): boolean {
-    if (item.status === 'LISTO') {
+    if (item.status === 'LISTO' || item.status === 'ENTREGADO') {
       return true;
     }
     const targetArea = area ?? this.selectedArea();
@@ -1811,6 +1906,27 @@ export class OpsScreenPageComponent {
       }
     }
     return false;
+  }
+
+  isOrderAllDelivered(order: Order, area: AreaId | 'ALL' = 'ALL'): boolean {
+    if (!order || !order.items || !order.items.length) {
+      return false;
+    }
+    const targetArea = area ?? this.selectedArea();
+    const relevantItems = order.items.filter((item) => {
+      if (item.status === 'ANULADO') return false;
+      if (targetArea === 'ALL') return true;
+      if (item.subItems && item.subItems.length > 0) {
+        return item.subItems.some((s) => s.area === targetArea);
+      }
+      return item.area === targetArea;
+    });
+
+    if (!relevantItems.length) {
+      return false;
+    }
+
+    return relevantItems.every((item) => item.status === 'ENTREGADO');
   }
 
   hasPendingItems(order: Order, area?: AreaId | 'ALL'): boolean {

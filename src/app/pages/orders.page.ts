@@ -372,15 +372,12 @@ interface DeliveredTableGroup {
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <button
-                          type="button"
-                          class="line-status-chip chip-pending btn-action-ready"
-                          style="cursor: pointer; background: #fef3c7; color: #92400e; border: 1px solid #fde68a;"
-                          title="Hacer clic para marcar producto como LISTO / PREPARADO"
-                          (click)="markItemReadyInOrders($event, order.id, item.id)"
+                        <span
+                          class="line-status-chip chip-pending"
+                          style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a;"
                         >
-                          <i class="bi bi-clock-history" aria-hidden="true"></i> En prep. (Listo?)
-                        </button>
+                          <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
+                        </span>
                       }
                     </li>
                   }
@@ -1235,11 +1232,7 @@ interface DeliveredTableGroup {
                   <div style="flex: 1; min-width: 0;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                       <strong>{{ item.productName }}</strong>
-                      @if (item.paid) {
-                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                          <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Ya cobrado
-                        </span>
-                      } @else if (item.status === 'LISTO') {
+                      @if (item.status === 'LISTO') {
                         <button
                           type="button"
                           style="font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.6rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; border: none; border-radius: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);"
@@ -1253,15 +1246,17 @@ interface DeliveredTableGroup {
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
                       } @else {
-                        <button
-                          type="button"
-                          class="line-status-chip chip-pending btn-action-ready"
-                          style="font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
-                          title="Hacer clic para marcar como LISTO / PREPARADO"
-                          (click)="markItemReadyInOrders($event, selectedOrder()!.id, item.id)"
+                        <span
+                          class="line-status-chip chip-pending"
+                          style="font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;"
                         >
-                          <i class="bi bi-check-circle" aria-hidden="true"></i> Marcar Listo
-                        </button>
+                          <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
+                        </span>
+                      }
+                      @if (item.paid) {
+                        <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                          <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Ya cobrado
+                        </span>
                       }
                     </div>
                     <small>{{ item.restaurantId }} / {{ item.area }}</small>
@@ -1326,11 +1321,7 @@ interface DeliveredTableGroup {
                 </button>
               }
 
-              @if (hasPendingItems(selectedOrder()!)) {
-                <button type="button" class="btn-ghost" style="color: #059669; border-color: #6ee7b7;" (click)="markAllReadyInOrders(selectedOrder()!.id)">
-                  <span class="btn-content"><i class="bi bi-check2-circle btn-icon" aria-hidden="true"></i>Marcar toda lista</span>
-                </button>
-              }
+
 
               @if (selectedOrder()!.status === 'ENTREGADO' && !isPendingPaymentVerification(selectedOrder()!)) {
                 <button type="button" class="btn-ghost" (click)="toggleBillSummary()">

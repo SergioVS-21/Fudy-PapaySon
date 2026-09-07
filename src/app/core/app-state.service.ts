@@ -1530,7 +1530,7 @@ export class AppStateService {
       .map((order) => ({
         ...order,
         items: order.items.filter((item) => {
-          if (item.status === 'ENTREGADO' || item.status === 'ANULADO') {
+          if (item.status === 'ANULADO') {
             return false;
           }
           if (restaurant !== 'ALL' && item.restaurantId !== restaurant) {
@@ -1676,8 +1676,14 @@ export class AppStateService {
         if (localOrderTime > remoteOrderTime) {
           finalStatus = localOrder.status;
         }
+        const isCobrado =
+          finalStatus === 'COBRADO' ||
+          !!remoteOrder.closedAt ||
+          !!remoteOrder.paymentMethod ||
+          !!localOrder.closedAt ||
+          !!localOrder.paymentMethod;
         if (allItemsDelivered && finalStatus !== 'ANULADO') {
-          finalStatus = 'ENTREGADO';
+          finalStatus = isCobrado ? 'COBRADO' : 'ENTREGADO';
         }
 
         return {
