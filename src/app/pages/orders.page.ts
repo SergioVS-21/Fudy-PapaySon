@@ -260,7 +260,15 @@ interface DeliveredTableGroup {
                                   </td>
                                   <td style="padding: 0.35rem 0.5rem; text-align: right;">
                                     <div style="display: inline-flex; gap: 0.25rem; align-items: center;">
-                                      @if (subOrder.status === 'ENTREGADO') {
+                                      @if (subOrder.status === 'COBRADO' || allOrderItemsPaid(subOrder)) {
+                                        <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #ecfdf5; color: #047857; border-radius: 0.35rem; display: inline-flex; align-items: center; gap: 0.2rem;">
+                                          <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Cobrado
+                                        </span>
+                                      } @else if (isPendingPaymentVerification(subOrder)) {
+                                        <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #fef3c7; color: #92400e; border-radius: 0.35rem; display: inline-flex; align-items: center; gap: 0.2rem;">
+                                          <i class="bi bi-clock-history" aria-hidden="true"></i> En verificación
+                                        </span>
+                                      } @else if (subOrder.status === 'ENTREGADO') {
                                         <button
                                           type="button"
                                           style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #059669; color: #ffffff; border: none; border-radius: 0.35rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;"
@@ -1257,6 +1265,15 @@ interface DeliveredTableGroup {
                         <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
                           <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Ya cobrado
                         </span>
+                      } @else if (item.status === 'ENTREGADO' && selectedOrder()!.status !== 'COBRADO' && !isPendingPaymentVerification(selectedOrder()!)) {
+                        <button
+                          type="button"
+                          style="font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #059669; color: #ffffff; border: none; border-radius: 0.35rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;"
+                          title="Cobrar únicamente este producto"
+                          (click)="openReceivePaymentModalForItem(selectedOrder()!, item)"
+                        >
+                          <i class="bi bi-cash-coin" aria-hidden="true"></i> Cobrar producto
+                        </button>
                       }
                     </div>
                     <small>{{ item.restaurantId }} / {{ item.area }}</small>
@@ -1422,9 +1439,19 @@ interface DeliveredTableGroup {
                   </article>
                 }
 
-                <button type="button" (click)="openReceivePaymentModal(selectedOrder()!.id)">
-                  <span class="btn-content"><i class="bi bi-cash-coin btn-icon" aria-hidden="true"></i>Pago recibido</span>
-                </button>
+                @if (selectedOrder()!.status === 'COBRADO' || allOrderItemsPaid(selectedOrder()!)) {
+                  <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 0.5rem; padding: 0.75rem; text-align: center; color: #065f46; font-weight: 700; margin-top: 0.75rem;">
+                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Esta comanda ya fue cobrada
+                  </div>
+                } @else if (isPendingPaymentVerification(selectedOrder()!)) {
+                  <div style="background: #fef3c7; border: 1px solid #fde68a; border-radius: 0.5rem; padding: 0.75rem; text-align: center; color: #92400e; font-weight: 700; margin-top: 0.75rem;">
+                    <i class="bi bi-clock-history" aria-hidden="true"></i> Pago en verificación por Caja
+                  </div>
+                } @else {
+                  <button type="button" (click)="openReceivePaymentModal(selectedOrder()!.id)">
+                    <span class="btn-content"><i class="bi bi-cash-coin btn-icon" aria-hidden="true"></i>Pago recibido</span>
+                  </button>
+                }
               </article>
             }
           </article>
@@ -1448,10 +1475,17 @@ interface DeliveredTableGroup {
             </p>
 
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.75rem; margin: 0.75rem 0;">
-              <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem;">
-                Comandas a pagar ({{ paymentTargetOrders().length }}):
-                <strong style="color: #1e293b;">{{ paymentTargetOrderIdsString() }}</strong>
-              </div>
+              @if (paymentTargetItem(); as pItem) {
+                <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem;">
+                  Producto a pagar:
+                  <strong style="color: #1e293b;">{{ pItem.quantity }}x {{ pItem.productName }}</strong>
+                </div>
+              } @else {
+                <div style="font-size: 0.8rem; color: #64748b; margin-bottom: 0.35rem;">
+                  Comandas a pagar ({{ paymentTargetOrders().length }}):
+                  <strong style="color: #1e293b;">{{ paymentTargetOrderIdsString() }}</strong>
+                </div>
+              }
               <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #475569;">
                 <span>Subtotal:</span>
                 <strong>\${{ paymentPayableSubtotal() | number:'1.2-2' }}</strong>
@@ -3979,6 +4013,15 @@ export class OrdersPageComponent {
     const occupied = new Map<RestaurantId, Set<number>>();
 
     this.userActiveOrders().forEach((order) => {
+      const uncancelled = order.items.filter((i) => i.status !== 'ANULADO');
+      const isDelivered = uncancelled.length > 0 && uncancelled.every((i) => i.status === 'ENTREGADO');
+      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || (uncancelled.length > 0 && uncancelled.every((i) => i.paid));
+
+      // Liberar mesa si ya fue entregada y cobrada
+      if (isDelivered && isPaid) {
+        return;
+      }
+
       const restaurantIds = new Set(order.items.map((item) => item.restaurantId));
       restaurantIds.forEach((restaurantId) => {
         const tables = occupied.get(restaurantId) ?? new Set<number>();
@@ -3993,7 +4036,11 @@ export class OrdersPageComponent {
   readonly allActiveOrdersForOccupancy = computed(() => {
     return this.state.orders().filter((order) => {
       if (order.status === 'ANULADO') return false;
-      return order.items.some((i) => i.status !== 'ENTREGADO' && i.status !== 'ANULADO');
+      const uncancelled = order.items.filter((i) => i.status !== 'ANULADO');
+      const isDelivered = uncancelled.length > 0 && uncancelled.every((i) => i.status === 'ENTREGADO');
+      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || (uncancelled.length > 0 && uncancelled.every((i) => i.paid));
+      if (isDelivered && isPaid) return false;
+      return order.items.some((i) => i.status !== 'ENTREGADO' && i.status !== 'ANULADO') || !isPaid;
     }).filter((order) => this.state.orderMatchesCurrentRestaurants(order));
   });
 
@@ -4025,6 +4072,10 @@ export class OrdersPageComponent {
       return this.userActiveOrders().filter((order) => {
         const hasActiveItems = order.items.some((i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO');
         if (hasActiveItems) return false;
+        const uncancelled = order.items.filter((i) => i.status !== 'ANULADO');
+        const isDelivered = uncancelled.length > 0 && uncancelled.every((i) => i.status === 'ENTREGADO');
+        const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || (uncancelled.length > 0 && uncancelled.every((i) => i.paid));
+        if (isDelivered && isPaid) return false;
         return order.status === 'ENTREGADO' || order.status === 'COBRADO';
       });
     }
@@ -4046,6 +4097,16 @@ export class OrdersPageComponent {
         (i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO'
       );
       if (hasActiveItems) return false;
+
+      const uncancelled = order.items.filter((i) => i.status !== 'ANULADO');
+      const isDelivered = uncancelled.length > 0 && uncancelled.every((i) => i.status === 'ENTREGADO');
+      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || (uncancelled.length > 0 && uncancelled.every((i) => i.paid));
+
+      // Liberar de comandas activas si ya se cobro y se entrego completamente
+      if (isDelivered && isPaid) {
+        return false;
+      }
+
       return order.status === 'ENTREGADO' || order.status === 'COBRADO';
     });
 
@@ -4109,13 +4170,18 @@ export class OrdersPageComponent {
       const total = subtotal + tax;
       const totalBs = total * this.bcvRate();
 
-      const payableOrders = orders.filter((o) => o.status === 'ENTREGADO');
-      const allCobrado = orders.length > 0 && orders.every((o) => o.status === 'COBRADO');
+      const payableOrders = orders.filter((o) =>
+        o.status !== 'COBRADO' &&
+        !this.allOrderItemsPaid(o) &&
+        !this.isPendingPaymentVerification(o) &&
+        o.items.some((i) => !i.paid && i.status !== 'ANULADO')
+      );
+      const allCobrado = orders.length > 0 && orders.every((o) => o.status === 'COBRADO' || this.allOrderItemsPaid(o));
       const hasPendingCobro = payableOrders.length > 0;
       const status: Order['status'] = allCobrado ? 'COBRADO' : 'ENTREGADO';
       const statusLabel = allCobrado
         ? 'Cobrado'
-        : orders.length > 1 && orders.some((o) => o.status === 'COBRADO')
+        : orders.length > 1 && orders.some((o) => o.status === 'COBRADO' || this.allOrderItemsPaid(o))
         ? `${payableOrders.length} por cobrar`
         : 'Entregado';
 
@@ -4166,32 +4232,41 @@ export class OrdersPageComponent {
 
   printTableGroupTicket(group: DeliveredTableGroup): void {
     const bcv = this.bcvRate();
-    const subtotal = group.subtotal;
-    const taxUsd = group.tax;
-    const totalUsd = group.total;
+    const unpaidOrders = group.orders.filter((o) => o.status !== 'COBRADO' && !this.allOrderItemsPaid(o));
+    const targetOrders = unpaidOrders.length > 0 ? unpaidOrders : group.orders;
+    const targetItems = targetOrders.flatMap((o) =>
+      o.items.filter((i) => i.status !== 'ANULADO' && (unpaidOrders.length > 0 ? !i.paid : true))
+    );
+    if (!targetItems.length) {
+      return;
+    }
+
+    const subtotal = targetItems.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = subtotal + taxUsd;
     const taxBs = taxUsd * bcv;
     const totalBs = totalUsd * bcv;
 
     this.state.queueConsumptionPrintJob({
-      restaurantIds: [...new Set(group.orders.flatMap((o) => o.items.map((i) => i.restaurantId)))],
-      localLabels: [...new Set(group.orders.flatMap((o) => o.items.map((i) => this.restaurantLabel(i.restaurantId))))],
+      restaurantIds: [...new Set(targetItems.map((i) => i.restaurantId))],
+      localLabels: [...new Set(targetItems.map((i) => this.restaurantLabel(i.restaurantId)))],
       tableLabels: [group.tableLabel],
-      orderIds: group.orderIds,
+      orderIds: targetOrders.map((o) => o.id),
       clientName: group.clientNames || `Mesa ${group.tableLabel}`,
-      clientDocumentId: group.orders.map((o) => o.clientDocumentId).filter(Boolean).join(', '),
-      items: group.items.map((i) => ({
+      clientDocumentId: targetOrders.map((o) => o.clientDocumentId).filter(Boolean).join(', '),
+      items: targetItems.map((i) => ({
         productName: i.productName,
         quantity: i.quantity,
         unitPrice: i.unitPrice,
-        total: i.total
+        total: i.quantity * i.unitPrice
       })),
       subtotalUsd: subtotal,
       tipUsd: 0,
       taxBs: taxBs,
       totalUsd,
       totalBs,
-      paymentMethod: group.orders[0]?.paymentMethod ?? 'EFECTIVO',
-      paymentReference: group.orders.map((o) => o.paymentReference).filter(Boolean).join(', ')
+      paymentMethod: targetOrders[0]?.paymentMethod ?? 'EFECTIVO',
+      paymentReference: targetOrders.map((o) => o.paymentReference).filter(Boolean).join(', ')
     });
   }
 
@@ -4637,11 +4712,29 @@ export class OrdersPageComponent {
   }
 
   readonly paymentTargetOrders = signal<Order[]>([]);
+  readonly paymentTargetItemId = signal<string | null>(null);
   readonly paymentModalCustomTitle = signal<string>('');
+
+  readonly paymentTargetItem = computed(() => {
+    const itemId = this.paymentTargetItemId();
+    if (!itemId) return null;
+    const order = this.paymentTargetOrders()[0] ?? this.selectedOrder();
+    return order?.items.find((i) => i.id === itemId) ?? null;
+  });
+
+  allOrderItemsPaid(order?: Order | null): boolean {
+    if (!order || !order.items || !order.items.length) return false;
+    const uncancelled = order.items.filter((i) => i.status !== 'ANULADO');
+    return uncancelled.length > 0 && uncancelled.every((i) => i.paid);
+  }
 
   readonly paymentModalTitle = computed(() => {
     if (this.paymentModalCustomTitle()) {
       return this.paymentModalCustomTitle();
+    }
+    const targetItem = this.paymentTargetItem();
+    if (targetItem) {
+      return `Producto: ${targetItem.productName}`;
     }
     const orders = this.paymentTargetOrders();
     if (orders.length === 1) {
@@ -4659,7 +4752,14 @@ export class OrdersPageComponent {
   });
 
   readonly paymentPayableSubtotal = computed(() => {
-    return this.paymentTargetOrders().reduce((sum, order) => sum + this.selectedOrderTotalFor(order), 0);
+    const targetItem = this.paymentTargetItem();
+    if (targetItem) {
+      return targetItem.quantity * targetItem.unitPrice;
+    }
+    return this.paymentTargetOrders().reduce((sum, order) => {
+      const unpaid = order.items.filter((item) => !item.paid && item.status !== 'ANULADO');
+      return sum + unpaid.reduce((itemSum, item) => itemSum + item.quantity * item.unitPrice, 0);
+    }, 0);
   });
 
   readonly paymentPayableTax = computed(() => {
@@ -4682,13 +4782,33 @@ export class OrdersPageComponent {
     return this.paymentTargetOrders().some((o) => this.shouldShowPapaAndSonQr(o));
   });
 
+  openReceivePaymentModalForItem(order: Order, item: OrderItem): void {
+    if (order.status === 'COBRADO' || item.paid || this.isPendingPaymentVerification(order)) {
+      return;
+    }
+
+    this.selectedOrderId.set(order.id);
+    this.paymentTargetOrders.set([order]);
+    this.paymentTargetItemId.set(item.id);
+    this.paymentModalCustomTitle.set(`Producto: ${item.productName} (Mesa ${this.tableLabel(order)})`);
+    this.paymentMethod.set('EFECTIVO_BS');
+    this.paymentReference.set('');
+    this.isReceivePaymentModalOpen.set(true);
+  }
+
   openPayTableModal(group: DeliveredTableGroup): void {
-    const payableOrders = group.orders.filter((o) => o.status === 'ENTREGADO');
+    const payableOrders = group.orders.filter((o) =>
+      o.status !== 'COBRADO' &&
+      !this.allOrderItemsPaid(o) &&
+      !this.isPendingPaymentVerification(o) &&
+      o.items.some((i) => !i.paid && i.status !== 'ANULADO')
+    );
     if (!payableOrders.length) {
       return;
     }
 
     this.paymentTargetOrders.set(payableOrders);
+    this.paymentTargetItemId.set(null);
     this.paymentModalCustomTitle.set(`Mesa ${group.tableLabel} (${payableOrders.length} comandas)`);
     this.paymentMethod.set('EFECTIVO_BS');
     this.paymentReference.set('');
@@ -4697,12 +4817,13 @@ export class OrdersPageComponent {
 
   openReceivePaymentModal(orderId: string): void {
     const order = this.state.orders().find((item) => item.id === orderId);
-    if (!order || order.status !== 'ENTREGADO' || this.isPendingPaymentVerification(order)) {
+    if (!order || order.status === 'COBRADO' || this.allOrderItemsPaid(order) || this.isPendingPaymentVerification(order)) {
       return;
     }
 
     this.selectedOrderId.set(orderId);
     this.paymentTargetOrders.set([order]);
+    this.paymentTargetItemId.set(null);
     this.paymentModalCustomTitle.set(`Comanda #${order.id}${order.tableNumber > 0 ? ' (Mesa ' + this.tableLabel(order) + ')' : ''}`);
     this.paymentMethod.set('EFECTIVO_BS');
     this.paymentReference.set('');
@@ -4713,6 +4834,7 @@ export class OrdersPageComponent {
     this.isReceivePaymentModalOpen.set(false);
     this.paymentReference.set('');
     this.paymentTargetOrders.set([]);
+    this.paymentTargetItemId.set(null);
     this.paymentModalCustomTitle.set('');
   }
 
@@ -4725,37 +4847,93 @@ export class OrdersPageComponent {
       return;
     }
 
+    const validOrders = orders.filter(
+      (o) => o.status !== 'COBRADO' && !this.allOrderItemsPaid(o) && !this.isPendingPaymentVerification(o)
+    );
+    if (!validOrders.length) {
+      this.closeReceivePaymentModal();
+      return;
+    }
+
+    const targetItemId = this.paymentTargetItemId();
     const method = this.paymentMethod();
     const reference = method === 'PAGO_MOVIL' ? this.paymentReference().trim() : (this.paymentReference().trim() || 'EFECTIVO');
     if (method === 'PAGO_MOVIL' && reference.length < 3) {
       return;
     }
 
-    const requiresVerification = orders.some((o) => this.requiresPapaAndSonPaymentVerification(o));
+    const targetItemIds = targetItemId ? [targetItemId] : undefined;
+
+    const itemsBeingCharged = validOrders.flatMap((order) =>
+      order.items.filter((item) =>
+        item.status !== 'ANULADO' &&
+        !item.paid &&
+        (!targetItemId || item.id === targetItemId)
+      )
+    );
+
+    if (!itemsBeingCharged.length) {
+      this.closeReceivePaymentModal();
+      return;
+    }
+
+    const subtotal = itemsBeingCharged.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = subtotal + taxUsd;
+    const totalBs = totalUsd * this.bcvRate();
+
+    const requiresVerification = validOrders.some((o) => this.requiresPapaAndSonPaymentVerification(o));
 
     if (requiresVerification && method === 'PAGO_MOVIL') {
-      orders.forEach((order) => {
-        const orderSubtotal = this.selectedOrderTotalFor(order);
-        const orderTax = orderSubtotal * PAPA_AND_SON_IVA_RATE;
-        const orderTotal = orderSubtotal + orderTax;
+      validOrders.forEach((order) => {
+        const orderItems = order.items.filter((item) =>
+          item.status !== 'ANULADO' &&
+          !item.paid &&
+          (!targetItemId || item.id === targetItemId)
+        );
+        const oSubtotal = orderItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+        const oTax = oSubtotal * PAPA_AND_SON_IVA_RATE;
+        const oTotal = oSubtotal + oTax;
         this.state.requestPaymentVerification(order.id, {
           paymentMethod: method,
           paymentReference: reference,
-          paymentAmountUsd: orderTotal,
-          paymentAmountBs: orderTotal * this.bcvRate()
+          paymentAmountUsd: oTotal,
+          paymentAmountBs: oTotal * this.bcvRate()
         });
       });
     } else {
-      orders.forEach((order) => {
-        const orderSubtotal = this.selectedOrderTotalFor(order);
-        const orderTax = orderSubtotal * PAPA_AND_SON_IVA_RATE;
-        const orderTotal = orderSubtotal + orderTax;
-        this.state.completeOrder(order.id, {
+      const orderIds = [...new Set(validOrders.map((o) => o.id))];
+      this.state.completeOrders(
+        orderIds,
+        {
           paymentMethod: method,
           paymentReference: reference,
-          paymentAmountUsd: orderTotal,
-          paymentAmountBs: orderTotal * this.bcvRate()
-        });
+          paymentAmountUsd: totalUsd,
+          paymentAmountBs: totalBs
+        },
+        targetItemIds
+      );
+
+      this.state.queueConsumptionPrintJob({
+        restaurantIds: [...new Set(itemsBeingCharged.map((i) => i.restaurantId))],
+        localLabels: [...new Set(itemsBeingCharged.map((i) => this.restaurantLabel(i.restaurantId)))],
+        tableLabels: [...new Set(validOrders.map((o) => this.tableLabel(o).toString()))],
+        orderIds,
+        clientName: validOrders.map((o) => o.clientName).filter(Boolean).join(', ') || 'Cliente',
+        clientDocumentId: validOrders.map((o) => o.clientDocumentId).filter(Boolean).join(', '),
+        items: itemsBeingCharged.map((i) => ({
+          productName: i.productName,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          total: i.quantity * i.unitPrice
+        })),
+        subtotalUsd: subtotal,
+        tipUsd: 0,
+        taxBs: taxUsd * this.bcvRate(),
+        totalUsd,
+        totalBs,
+        paymentMethod: method,
+        paymentReference: reference
       });
     }
 
@@ -5116,36 +5294,36 @@ export class OrdersPageComponent {
     this.state.markOrderReady(orderId, 'ALL');
   }
 
-  selectedOrderTotalFor(order: Order): number {
+  selectedOrderTotalFor(order: Order, onlyUnpaid = false): number {
     if (!order || !order.items) return 0;
-    return order.items
-      .filter((item) => item.status !== 'ANULADO')
-      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const unpaid = order.items.filter((item) => !item.paid && item.status !== 'ANULADO');
+    const items = onlyUnpaid ? unpaid : (unpaid.length > 0 ? unpaid : order.items.filter((item) => item.status !== 'ANULADO'));
+    return items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }
 
   printInvoiceTicket(order: Order): void {
     const bcv = this.bcvRate();
-    const subtotal = this.selectedOrderTotalFor(order);
+    const unpaid = order.items.filter((i) => !i.paid && i.status !== 'ANULADO');
+    const targetItems = unpaid.length > 0 ? unpaid : order.items.filter((i) => i.status !== 'ANULADO');
+    const subtotal = targetItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
     const totalUsd = order.paymentAmountUsd ?? (subtotal + taxUsd);
     const taxBs = taxUsd * bcv;
     const totalBs = order.paymentAmountBs ?? (totalUsd * bcv);
 
     this.state.queueConsumptionPrintJob({
-      restaurantIds: [...new Set(order.items.map((i) => i.restaurantId))],
-      localLabels: [...new Set(order.items.map((i) => this.restaurantLabel(i.restaurantId)))],
+      restaurantIds: [...new Set(targetItems.map((i) => i.restaurantId))],
+      localLabels: [...new Set(targetItems.map((i) => this.restaurantLabel(i.restaurantId)))],
       tableLabels: [this.tableLabel(order).toString()],
       orderIds: [order.id],
       clientName: order.clientName,
       clientDocumentId: order.clientDocumentId ?? '',
-      items: order.items
-        .filter((i) => i.status !== 'ANULADO')
-        .map((i) => ({
-          productName: i.productName,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          total: i.quantity * i.unitPrice
-        })),
+      items: targetItems.map((i) => ({
+        productName: i.productName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        total: i.quantity * i.unitPrice
+      })),
       subtotalUsd: subtotal,
       tipUsd: 0,
       taxBs: taxBs,

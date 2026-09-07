@@ -835,8 +835,8 @@ export class AppStateService {
     this.syncOrderById(orderId, { silent: true });
   }
 
-  completeOrder(orderId: string, payment?: PaymentCapture): void {
-    this.completeOrders([orderId], payment);
+  completeOrder(orderId: string, payment?: PaymentCapture, itemIds?: string[]): void {
+    this.completeOrders([orderId], payment, itemIds);
   }
 
   requestPaymentVerification(orderId: string, payment: PaymentCapture): boolean {
@@ -844,7 +844,8 @@ export class AppStateService {
     const normalizedReference = payment.paymentReference?.trim();
     if (
       !order ||
-      order.status !== 'ENTREGADO' ||
+      order.status === 'COBRADO' ||
+      order.paymentVerificationStatus === 'PENDIENTE' ||
       payment.paymentMethod !== 'PAGO_MOVIL' ||
       !normalizedReference
     ) {
@@ -885,21 +886,35 @@ export class AppStateService {
 
     const now = new Date().toISOString();
     this.orders.update((orders) =>
-      orders.map((item) =>
-        item.id === orderId
-          ? {
-              ...item,
-              status: 'COBRADO',
-              closedAt: now,
-              paymentVerificationStatus: 'VERIFICADO',
-              paymentVerifiedAt: now,
-              paymentVerifiedByUserId: this.currentUserId(),
-              paymentRejectedAt: undefined,
-              paymentRejectedByUserId: undefined,
-              updatedAt: now
-            }
-          : item
-      )
+      orders.map((item) => {
+        if (item.id !== orderId) {
+          return item;
+        }
+
+        const updatedItems = item.items.map((it) => {
+          if (it.status !== 'ANULADO') {
+            return {
+              ...it,
+              paid: true,
+              paidAt: it.paidAt || now
+            };
+          }
+          return it;
+        });
+
+        return {
+          ...item,
+          status: 'COBRADO',
+          closedAt: item.closedAt || now,
+          paymentVerificationStatus: 'VERIFICADO',
+          paymentVerifiedAt: now,
+          paymentVerifiedByUserId: this.currentUserId(),
+          paymentRejectedAt: undefined,
+          paymentRejectedByUserId: undefined,
+          updatedAt: now,
+          items: updatedItems
+        };
+      })
     );
 
     this.syncOrderById(orderId);
@@ -948,7 +963,7 @@ export class AppStateService {
     this.paymentVerificationNotifications.update((items) => items.slice(1));
   }
 
-  completeOrders(orderIds: string[], payment?: PaymentCapture): void {
+  completeOrders(orderIds: string[], payment?: PaymentCapture, itemIds?: string[]): void {
     const uniqueOrderIds = [...new Set(orderIds)].filter(Boolean);
     if (!uniqueOrderIds.length) {
       return;
@@ -962,12 +977,33 @@ export class AppStateService {
           return order;
         }
 
+        const uncancelledItems = order.items.filter((item) => item.status !== 'ANULADO');
+        const alreadyAllPaid = uncancelledItems.length > 0 && uncancelledItems.every((item) => item.paid);
+        if (order.status === 'COBRADO' && alreadyAllPaid) {
+          return order;
+        }
+
         const hadPriorPayment = order.items.some((it) => it.paid);
-        const updatedItems = order.items.map((item) => ({
-          ...item,
-          paid: true,
-          paidAt: item.paidAt || now
-        }));
+        const targetItemIdSet = itemIds && itemIds.length > 0 ? new Set(itemIds) : null;
+
+        const updatedItems = order.items.map((item) => {
+          if (item.status === 'ANULADO') {
+            return item;
+          }
+          const shouldPay = targetItemIdSet ? targetItemIdSet.has(item.id) : !item.paid;
+          if (shouldPay) {
+            return {
+              ...item,
+              paid: true,
+              paidAt: item.paidAt || now
+            };
+          }
+          return item;
+        });
+
+        const allItemsNowPaid = updatedItems
+          .filter((it) => it.status !== 'ANULADO')
+          .every((it) => it.paid);
 
         const priorAmountUsd = order.paymentAmountUsd || 0;
         const additionalUsd = payment?.paymentAmountUsd;
@@ -983,8 +1019,8 @@ export class AppStateService {
 
         return {
           ...order,
-          status: 'COBRADO',
-          closedAt: now,
+          status: allItemsNowPaid ? 'COBRADO' : order.status,
+          closedAt: allItemsNowPaid ? (order.closedAt || now) : order.closedAt,
           paymentMethod: payment?.paymentMethod ?? order.paymentMethod,
           paymentReference: normalizedReference ?? order.paymentReference,
           paymentAmountUsd: totalUsd,

@@ -3053,7 +3053,7 @@ export class DashboardPageComponent {
       const undeliveredItems = uncancelledItems.filter((item) => item.status !== 'ENTREGADO');
 
       const isDelivered = uncancelledItems.length > 0 && undeliveredItems.length === 0;
-      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) && unpaidItems.length === 0;
+      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || (uncancelledItems.length > 0 && unpaidItems.length === 0);
 
       // Se libera de la mesa SOLO cuando se cumplen AMBAS condiciones:
       // 1. Ya fue cobrada (isPaid)
@@ -3662,11 +3662,14 @@ export class DashboardPageComponent {
       paymentReference
     );
 
+    const paidUsd = receiptSnapshot ? receiptSnapshot.totalUsd : this.selectedDetailTotal();
+    const paidBs = receiptSnapshot ? receiptSnapshot.totalBs : this.selectedDetailTotalBs();
+
     this.state.completeOrders(this.paymentOrderIds(), {
       paymentMethod: method,
       paymentReference,
-      paymentAmountUsd: this.selectedDetailTotal(),
-      paymentAmountBs: this.selectedDetailTotalBs()
+      paymentAmountUsd: paidUsd,
+      paymentAmountBs: paidBs
     });
 
     if (receiptSnapshot) {
@@ -4113,7 +4116,8 @@ export class DashboardPageComponent {
   private buildPaymentReceiptSnapshot(
     orderIds: string[],
     paymentMethod: PaymentMethod,
-    paymentReference: string
+    paymentReference: string,
+    targetItemIds?: string[]
   ): PaymentReceiptSnapshot | null {
     const uniqueOrderIds = [...new Set(orderIds)].filter(Boolean);
     if (!uniqueOrderIds.length) {
@@ -4125,8 +4129,17 @@ export class DashboardPageComponent {
       return null;
     }
 
-    const payableItems = orders.flatMap((order) => order.items.filter((item) => !item.paid));
-    const targetItems = payableItems.length > 0 ? payableItems : orders.flatMap((order) => order.items);
+    const targetItemIdSet = targetItemIds && targetItemIds.length > 0 ? new Set(targetItemIds) : null;
+    const payableItems = orders.flatMap((order) =>
+      order.items.filter((item) => item.status !== 'ANULADO' && (targetItemIdSet ? targetItemIdSet.has(item.id) : !item.paid))
+    );
+    const targetItems = payableItems.length > 0
+      ? payableItems
+      : orders.flatMap((order) => order.items.filter((item) => item.status !== 'ANULADO'));
+    if (!targetItems.length) {
+      return null;
+    }
+
     const items = this.buildDetailItems(targetItems);
     const localLabels = [...new Set(targetItems.map((item) => this.localLabel(item.restaurantId)))];
     const tableLabels = [...new Set(orders.map((order) => this.tableLabel(order)))];
@@ -4134,7 +4147,13 @@ export class DashboardPageComponent {
     const uniqueDocumentIds = [
       ...new Set(orders.map((order) => order.clientDocumentId).filter((documentId): documentId is string => !!documentId))
     ];
-    const paymentSummary = this.buildPaymentSummary(orders, payableItems.length > 0);
+
+    const subtotalUsd = targetItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const taxUsd = subtotalUsd * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = subtotalUsd + taxUsd;
+    const bcv = this.bcvRate();
+    const taxBs = taxUsd * bcv;
+    const totalBs = totalUsd * bcv;
 
     return {
       restaurantIds: [...new Set(targetItems.map((item) => item.restaurantId))],
@@ -4144,11 +4163,11 @@ export class DashboardPageComponent {
       tableLabels,
       orderIds: orders.map((order) => order.id),
       items,
-      subtotalUsd: paymentSummary.subtotalUsd,
-      tipUsd: paymentSummary.tipUsd,
-      taxBs: paymentSummary.taxBs,
-      totalUsd: paymentSummary.totalUsd,
-      totalBs: paymentSummary.totalBs,
+      subtotalUsd,
+      tipUsd: 0,
+      taxBs,
+      totalUsd,
+      totalBs,
       paymentMethod,
       paymentReference,
       createdAt: new Date().toISOString()
