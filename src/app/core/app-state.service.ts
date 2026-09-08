@@ -81,6 +81,7 @@ export class AppStateService {
   private bcvAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
   private bcvAutoSyncPromise: Promise<void> | null = null;
   private lastBcvAutoSyncAttemptAt = 0;
+  private lastCatalogRefreshAt = 0;
   private pendingSyncOperations = 0;
   private syncOverlayTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private syncOverlayRetryOperation: (() => Promise<unknown>) | null = null;
@@ -180,16 +181,26 @@ export class AppStateService {
       }
     }
 
-    this.backgroundRefreshPromise = Promise.all([
-      this.loadAppSettingsFromFirebase(),
-      this.loadCustomersFromFirebase(),
-      this.loadProductsFromFirebase(),
-      this.loadInventoryArticlesFromFirebase(),
-      this.loadOrdersFromFirebase(),
-      this.loadProductCategoriesFromFirebase()
-    ])
+    const now = Date.now();
+    const shouldRefreshCatalog = showLoading || now - this.lastCatalogRefreshAt > 60_000;
+
+    const tasks: Promise<unknown>[] = [this.loadOrdersFromFirebase()];
+    if (shouldRefreshCatalog) {
+      this.lastCatalogRefreshAt = now;
+      tasks.push(
+        this.loadAppSettingsFromFirebase(),
+        this.loadCustomersFromFirebase(),
+        this.loadProductsFromFirebase(),
+        this.loadInventoryArticlesFromFirebase(),
+        this.loadProductCategoriesFromFirebase()
+      );
+    }
+
+    this.backgroundRefreshPromise = Promise.all(tasks)
       .then(() => {
-        this.ensureAllProductCategoriesExist();
+        if (shouldRefreshCatalog) {
+          this.ensureAllProductCategoriesExist();
+        }
       })
       .finally(() => {
         if (showLoading) {
@@ -281,7 +292,8 @@ export class AppStateService {
       type: 'NOTA_CONSUMO',
       area: 'CAJA',
       createdAt,
-      ...input
+      ...input,
+      isReprint: Boolean(input.isReprint)
     };
 
     this.trackSyncOperation(
@@ -1673,14 +1685,37 @@ export class AppStateService {
   private async loadOrdersFromFirebase(): Promise<void> {
     try {
       const orderDocs = await this.firebaseData.listOrders();
-      const orderIds = orderDocs.map((orderDoc) => orderDoc.id);
-      const itemsByOrderId = await this.firebaseData.listOrderItemsByOrderIds(orderIds);
+      const currentOrders = this.orders();
+      const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
+
+      const orderIdsToFetch: string[] = [];
+      const itemsByOrderId: Record<string, OrderItemDoc[]> = {};
+
+      for (const orderDoc of orderDocs) {
+        const localOrder = currentOrdersById.get(orderDoc.id);
+        const isClosed = orderDoc.status === 'COBRADO' || !!orderDoc.closedAt;
+        const isUnchanged =
+          !!localOrder &&
+          localOrder.items.length > 0 &&
+          localOrder.updatedAt === orderDoc.updatedAt;
+
+        if (isClosed && isUnchanged) {
+          itemsByOrderId[orderDoc.id] = localOrder.items.map((i) =>
+            this.mapOrderItemToOrderItemDoc(orderDoc.id, i)
+          );
+        } else {
+          orderIdsToFetch.push(orderDoc.id);
+        }
+      }
+
+      if (orderIdsToFetch.length > 0) {
+        const fetchedItems = await this.firebaseData.listOrderItemsByOrderIds(orderIdsToFetch);
+        Object.assign(itemsByOrderId, fetchedItems);
+      }
+
       const remoteOrders = orderDocs.map((orderDoc) =>
         this.mapOrderDocToOrder(orderDoc, itemsByOrderId[orderDoc.id] ?? [])
       );
-
-      const currentOrders = this.orders();
-      const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
 
       const mergedOrders = remoteOrders.map((remoteOrder) => {
         const localOrder = currentOrdersById.get(remoteOrder.id);

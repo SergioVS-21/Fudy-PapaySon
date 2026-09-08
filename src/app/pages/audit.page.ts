@@ -1882,8 +1882,33 @@ export class AuditPageComponent {
       )
       .join('');
 
+    const nonCancelledItems = order.items.filter((i) => i.status !== 'ANULADO');
+    const subtotal = nonCancelledItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const totalUsd = order.paymentAmountUsd || this.auditOrderTotal(order);
     const totalBs = order.paymentAmountBs || totalUsd * bcv;
+
+    this.state.queueConsumptionPrintJob({
+      restaurantIds: [...new Set(order.items.map((i) => i.restaurantId))],
+      localLabels: [...new Set(order.items.map((i) => this.localLabel(i.restaurantId)))],
+      tableLabels: [this.tableLabel(order)],
+      orderIds: [order.id],
+      clientName: order.clientName,
+      clientDocumentId: order.clientDocumentId ?? '',
+      items: nonCancelledItems.map((i) => ({
+        productName: i.productName,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        total: i.quantity * i.unitPrice
+      })),
+      subtotalUsd: subtotal,
+      tipUsd: 0,
+      taxBs: 0,
+      totalUsd,
+      totalBs,
+      paymentMethod: order.paymentMethod ?? 'EFECTIVO',
+      paymentReference: order.paymentReference ?? '',
+      isReprint: true
+    });
 
     const ticketWindow = window.open('', '_blank', 'width=320,height=600');
     if (!ticketWindow) {

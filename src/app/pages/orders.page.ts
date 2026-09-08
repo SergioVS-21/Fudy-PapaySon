@@ -264,6 +264,15 @@ interface DeliveredTableGroup {
                                         <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #ecfdf5; color: #047857; border-radius: 0.35rem; display: inline-flex; align-items: center; gap: 0.2rem;">
                                           <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Cobrado
                                         </span>
+                                        <button
+                                          type="button"
+                                          class="btn-ghost"
+                                          style="font-size: 0.72rem; padding: 0.2rem 0.45rem; color: #15803d;"
+                                          title="Reimprimir nota de entrega"
+                                          (click)="$event.stopPropagation(); printInvoiceTicket(subOrder, true)"
+                                        >
+                                          <i class="bi bi-printer-fill" aria-hidden="true"></i>
+                                        </button>
                                       } @else if (isPendingPaymentVerification(subOrder)) {
                                         <span style="font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.45rem; background: #fef3c7; color: #92400e; border-radius: 0.35rem; display: inline-flex; align-items: center; gap: 0.2rem;">
                                           <i class="bi bi-clock-history" aria-hidden="true"></i> En verificación
@@ -1440,8 +1449,16 @@ interface DeliveredTableGroup {
                 }
 
                 @if (selectedOrder()!.status === 'COBRADO' || allOrderItemsPaid(selectedOrder()!)) {
-                  <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 0.5rem; padding: 0.75rem; text-align: center; color: #065f46; font-weight: 700; margin-top: 0.75rem;">
-                    <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Esta comanda ya fue cobrada
+                  <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 0.5rem; padding: 0.75rem; text-align: center; color: #065f46; font-weight: 700; margin-top: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                    <span><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Esta comanda ya fue cobrada</span>
+                    <button
+                      type="button"
+                      style="font-size: 0.75rem; padding: 0.35rem 0.65rem; background: #ffffff; color: #15803d; border: 1px solid #86efac; border-radius: 0.375rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;"
+                      title="Reimprimir nota de entrega"
+                      (click)="printInvoiceTicket(selectedOrder()!, true)"
+                    >
+                      <i class="bi bi-printer-fill" aria-hidden="true"></i> Reimprimir nota
+                    </button>
                   </div>
                 } @else if (isPendingPaymentVerification(selectedOrder()!)) {
                   <div style="background: #fef3c7; border: 1px solid #fde68a; border-radius: 0.5rem; padding: 0.75rem; text-align: center; color: #92400e; font-weight: 700; margin-top: 0.75rem;">
@@ -5301,7 +5318,7 @@ export class OrdersPageComponent {
     return items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   }
 
-  printInvoiceTicket(order: Order): void {
+  printInvoiceTicket(order: Order, isReprint = true): void {
     const bcv = this.bcvRate();
     const unpaid = order.items.filter((i) => !i.paid && i.status !== 'ANULADO');
     const targetItems = unpaid.length > 0 ? unpaid : order.items.filter((i) => i.status !== 'ANULADO');
@@ -5330,7 +5347,8 @@ export class OrdersPageComponent {
       totalUsd,
       totalBs,
       paymentMethod: order.paymentMethod ?? 'EFECTIVO',
-      paymentReference: order.paymentReference ?? ''
+      paymentReference: order.paymentReference ?? '',
+      isReprint
     });
   }
 

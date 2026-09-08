@@ -4174,7 +4174,7 @@ export class DashboardPageComponent {
     };
   }
 
-  private printDeliveryReceipt(receipt: PaymentReceiptSnapshot): void {
+  private printDeliveryReceipt(receipt: PaymentReceiptSnapshot, isReprint = false): void {
     this.state.queueConsumptionPrintJob({
       restaurantIds: receipt.restaurantIds,
       localLabels: receipt.localLabels,
@@ -4194,7 +4194,8 @@ export class DashboardPageComponent {
       totalUsd: receipt.totalUsd,
       totalBs: receipt.totalBs,
       paymentMethod: receipt.paymentMethod,
-      paymentReference: receipt.paymentReference
+      paymentReference: receipt.paymentReference,
+      isReprint
     });
   }
 

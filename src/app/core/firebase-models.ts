@@ -181,6 +181,7 @@ export interface PrintJobDoc {
   totalBs: number;
   paymentMethod: PaymentMethod;
   paymentReference: string;
+  isReprint?: boolean;
   createdAt: FirestoreTimestamp;
 }
 

@@ -92,7 +92,7 @@ const papaAndSonSalonTables = Array.from({ length: 50 }, (_, index) => {
   };
 });
 
-const papaAndSonVipTables: NextRestobarTableOption[] = Array.from({ length: 10 }, (_, index) => ({
+const papaAndSonVipTables: NextRestobarTableOption[] = Array.from({ length: 20 }, (_, index) => ({
   tableNumber: 500 + index + 1,
   label: `V${index + 1}`,
   row: Math.floor(index / 6) + 1,

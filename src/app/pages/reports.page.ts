@@ -1475,7 +1475,8 @@ export class ReportsPageComponent {
       totalUsd,
       totalBs,
       paymentMethod: order.paymentMethod ?? 'EFECTIVO',
-      paymentReference: order.paymentReference ?? ''
+      paymentReference: order.paymentReference ?? '',
+      isReprint: true
     });
   }
 

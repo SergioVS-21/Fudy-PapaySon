@@ -118,12 +118,20 @@ export class FirebaseDataService {
       return grouped;
     }
 
-    const chunkSize = 10;
+    const chunkSize = 30;
+    const chunks: string[][] = [];
     for (let index = 0; index < uniqueIds.length; index += chunkSize) {
-      const chunk = uniqueIds.slice(index, index + chunkSize);
-      const itemsQuery = query(this.orderItemsCollection, where('orderId', 'in', chunk));
-      const snapshot = await getDocs(itemsQuery);
+      chunks.push(uniqueIds.slice(index, index + chunkSize));
+    }
 
+    const snapshots = await Promise.all(
+      chunks.map((chunk) => {
+        const itemsQuery = query(this.orderItemsCollection, where('orderId', 'in', chunk));
+        return getDocs(itemsQuery);
+      })
+    );
+
+    snapshots.forEach((snapshot) => {
       snapshot.docs.forEach((item) => {
         const itemDoc = item.data() as OrderItemDoc;
         if (!grouped[itemDoc.orderId]) {
@@ -132,7 +140,7 @@ export class FirebaseDataService {
 
         grouped[itemDoc.orderId].push(itemDoc);
       });
-    }
+    });
 
     return grouped;
   }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import platform
@@ -265,7 +266,9 @@ class EscPos58Formatter:
         body.extend(b"\x1b@")
         body.extend(b"\x1ba\x01")
         body.extend(b"\x1bE\x01")
-        body.extend(b"\x1d!\x11")
+        is_reprint = bool(job.get("isReprint") or job.get("reprint"))
+        if is_reprint:
+            body.extend(cls._encode("*** REIMPRESION ***\n"))
         body.extend(cls._encode("NOTA DE CONSUMO\n"))
         
         body.extend(b"\x1d!\x00")
@@ -495,13 +498,38 @@ class FirestorePrintBridge:
             if not self._matches_print_job(payload):
                 continue
 
+            raw_order_ids = payload.get("orderIds") or []
+            if not raw_order_ids and payload.get("orderId"):
+                raw_order_ids = [payload.get("orderId")]
+            order_ids = [str(oid).strip() for oid in raw_order_ids if str(oid).strip()]
+
+            is_reprint = bool(payload.get("isReprint") or payload.get("reprint"))
+
+            # REGLA: Nunca imprimir más de 1 nota de entrega por comanda a menos que sea reimpresión
+            if not is_reprint and order_ids:
+                already_printed = [oid for oid in order_ids if self.registry.has(f"order_delivery:{oid}")]
+                if already_printed:
+                    self.registry.mark(job_id)
+                    area = payload.get("area") or "CAJA"
+                    orders_label = ", ".join(order_ids)
+                    self.logger(
+                        f"[{area}] Omitida nota de entrega para comanda(s) #{orders_label}: "
+                        f"ya fue impresa previamente (no es reimpresión)"
+                    )
+                    continue
+
             self.registry.mark(job_id)
 
             try:
                 ticket = EscPos58Formatter.build_consumption_note(payload)
                 PrinterService.print_bytes(self.config.printer_name, ticket)
+                for oid in order_ids:
+                    self.registry.mark(f"order_delivery:{oid}")
+
                 area = payload.get("area") or "CAJA"
-                self.logger(f"[{area}] Impresa nota de consumo {job_id}")
+                reprint_tag = " [REIMPRESION]" if is_reprint else ""
+                orders_label = f" (Comanda(s) #{', '.join(order_ids)})" if order_ids else ""
+                self.logger(f"[{area}] Impresa nota de consumo {job_id}{reprint_tag}{orders_label}")
             except Exception as exc:  # noqa: BLE001
                 self.logger(f"Error imprimiendo nota de consumo {job_id}: {exc}")
 
@@ -546,6 +574,7 @@ class PrinterBridgeApp:
         self.registry = PrintedRegistry()
         self.events: queue.Queue[str] = queue.Queue()
         self.bridge: FirestorePrintBridge | None = None
+        self.is_listening: bool = False
 
         self.root = Tk()
         self.root.withdraw()
@@ -738,25 +767,25 @@ class PrinterBridgeApp:
                 self.stop_btn.configure(state="disabled")
 
     def _start_listener(self) -> None:
-        self._save_config()
-        if not self.config.printer_name:
-            messagebox.showerror(APP_NAME, "Selecciona una impresora antes de iniciar")
+        if self.is_listening or self.bridge is not None:
+            messagebox.showwarning(APP_NAME, "La escucha ya se encuentra iniciada en este equipo.")
             return
 
-        if self.bridge:
-            try:
-                self.bridge.stop()
-            except Exception:
-                pass
-            self.bridge = None
+        self._set_listener_state(True)
+        self._save_config()
+        if not self.config.printer_name:
+            self._set_listener_state(False)
+            messagebox.showerror(APP_NAME, "Selecciona una impresora antes de iniciar")
+            return
 
         try:
             self.bridge = FirestorePrintBridge(self.config, self.registry, self._push_event)
             self.bridge.start()
-            self._set_listener_state(True)
+            self.is_listening = True
             areas_str = ", ".join(self.config.handled_areas)
             self._push_event(f"Listener iniciado (Áreas activas: {areas_str})")
         except Exception as exc:  # noqa: BLE001
+            self.is_listening = False
             self._set_listener_state(False)
             messagebox.showerror(APP_NAME, str(exc))
 
@@ -767,6 +796,7 @@ class PrinterBridgeApp:
             except Exception:
                 pass
             self.bridge = None
+        self.is_listening = False
         self._set_listener_state(False)
         self._push_event("Listener detenido")
 
@@ -820,10 +850,26 @@ class PrinterBridgeApp:
 
 SINGLE_INSTANCE_PORT = 48529
 _instance_socket: socket.socket | None = None
+_instance_mutex_handle: Any = None
 
 
 def ensure_single_instance() -> bool:
-    global _instance_socket
+    global _instance_socket, _instance_mutex_handle
+
+    if platform.system() == "Windows":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            mutex_name = "Global\\PrinterBridge_SingleInstance_Mutex_Fudy"
+            handle = kernel32.CreateMutexW(None, True, mutex_name)
+            last_error = kernel32.GetLastError()
+            # 183 = ERROR_ALREADY_EXISTS
+            if last_error == 183 or not handle:
+                return False
+            _instance_mutex_handle = handle
+            return True
+        except Exception:
+            pass
+
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
