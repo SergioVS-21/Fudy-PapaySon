@@ -5,6 +5,8 @@ import { AppStateService } from '../core/app-state.service';
 import { Order, OrderStatus, RestaurantId } from '../core/models';
 import { formatTableNumberLabel } from '../core/table-layouts';
 
+const PAPA_AND_SON_IVA_RATE = 0.16;
+
 @Component({
   selector: 'app-audit-page',
   standalone: true,
@@ -68,9 +70,9 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                 <small class="kpi-hint">Canceladas con motivo</small>
               </div>
               <div class="kpi-card card-total">
-                <span class="kpi-tag">TOTAL AUDITADO</span>
+                <span class="kpi-tag">TOTAL AUDITADO (CON IVA)</span>
                 <strong class="kpi-number">\${{ auditCounts().totalMonto | number:'1.2-2' }}</strong>
-                <small class="kpi-hint">Ventas consolidadas</small>
+                <small class="kpi-hint">Ventas consolidadas con IVA</small>
               </div>
             </div>
 
@@ -318,9 +320,9 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                           <i [class]="auditSortColumn() === 'status' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
                         </div>
                       </th>
-                      <th (click)="toggleAuditSort('total')" class="sortable-header text-right" title="Ordenar por Total">
+                      <th (click)="toggleAuditSort('total')" class="sortable-header text-right" title="Ordenar por Total con IVA">
                         <div class="th-flex text-right">
-                          <span>Total ($)</span>
+                          <span>Total con IVA ($)</span>
                           <i [class]="auditSortColumn() === 'total' ? (auditSortDirection() === 'asc' ? 'bi bi-sort-up' : 'bi bi-sort-down') : 'bi bi-arrow-down-up'" aria-hidden="true"></i>
                         </div>
                       </th>
@@ -371,6 +373,7 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                         </td>
                         <td class="text-right total-cell">
                           <strong>\${{ auditOrderTotal(order) | number:'1.2-2' }}</strong>
+                          <small style="display: block; font-size: 0.72rem; color: #64748b;">Subt: \${{ auditOrderSubtotal(order) | number:'1.2-2' }} (+IVA)</small>
                           <small>{{ order.items.length }} {{ order.items.length === 1 ? 'item' : 'items' }}</small>
                         </td>
                         <td class="text-right actions-cell" (click)="$event.stopPropagation()">
@@ -470,7 +473,7 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                     <strong style="color: #1e293b;">Ciclo y Trazabilidad de la Orden</strong>
                   </div>
                   <span class="summary-total-val">
-                    Total: \${{ auditOrderTotal(order) | number:'1.2-2' }}
+                    Total (con IVA): \${{ auditOrderTotal(order) | number:'1.2-2' }}
                   </span>
                 </div>
 
@@ -524,13 +527,27 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                       <strong class="meta-value">{{ order.paymentReference || 'Sin referencia' }}</strong>
                     </div>
                     <div class="meta-item">
-                      <span class="meta-label">Monto USD:</span>
-                      <strong class="meta-value">\${{ (order.paymentAmountUsd || auditOrderTotal(order)) | number:'1.2-2' }}</strong>
+                      <span class="meta-label">Subtotal (sin IVA):</span>
+                      <strong class="meta-value">\${{ auditOrderSubtotal(order) | number:'1.2-2' }}</strong>
                     </div>
                     <div class="meta-item">
-                      <span class="meta-label">Monto Bs:</span>
-                      <strong class="meta-value">{{ (order.paymentAmountBs || (auditOrderTotal(order) * appBcvRate())) | number:'1.2-2' }} Bs.</strong>
+                      <span class="meta-label">IVA (16%):</span>
+                      <strong class="meta-value">\${{ auditOrderTax(order) | number:'1.2-2' }}</strong>
                     </div>
+                    <div class="meta-item">
+                      <span class="meta-label">Total Comanda con IVA:</span>
+                      <strong class="meta-value" style="color: #059669; font-size: 1.05rem;">\${{ auditOrderTotal(order) | number:'1.2-2' }}</strong>
+                    </div>
+                    <div class="meta-item">
+                      <span class="meta-label">Total Comanda (Bs):</span>
+                      <strong class="meta-value">{{ (auditOrderTotal(order) * appBcvRate()) | number:'1.2-2' }} Bs.</strong>
+                    </div>
+                    @if (order.paymentAmountUsd && (order.paymentAmountUsd | number:'1.2-2') !== (auditOrderTotal(order) | number:'1.2-2')) {
+                      <div class="meta-item">
+                        <span class="meta-label">Cobro Registrado en Caja:</span>
+                        <strong class="meta-value" style="color: #64748b;">\${{ order.paymentAmountUsd | number:'1.2-2' }}</strong>
+                      </div>
+                    }
                     @if (order.paymentVerificationStatus) {
                       <div class="meta-item">
                         <span class="meta-label">Verificación de Pago:</span>
@@ -554,8 +571,8 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                       <th>Área / Cocina</th>
                       <th>Local</th>
                       <th>Estado del Item</th>
-                      <th class="text-right">Precio</th>
-                      <th class="text-right">Subtotal</th>
+                      <th class="text-right">Precio c/IVA</th>
+                      <th class="text-right">Total c/IVA</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -579,13 +596,27 @@ import { formatTableNumberLabel } from '../core/table-layouts';
                             {{ item.status || 'PENDIENTE' }}
                           </span>
                         </td>
-                        <td class="text-right">\${{ item.unitPrice | number:'1.2-2' }}</td>
+                        <td class="text-right">\${{ (item.unitPrice * (1 + 0.16)) | number:'1.2-2' }}</td>
                         <td class="text-right" style="font-weight: 800; color: #059669;">
-                          \${{ (item.quantity * item.unitPrice) | number:'1.2-2' }}
+                          \${{ (item.quantity * item.unitPrice * (1 + 0.16)) | number:'1.2-2' }}
                         </td>
                       </tr>
                     }
                   </tbody>
+                  <tfoot>
+                    <tr style="background: #f8fafc; border-top: 2px solid #e2e8f0; font-size: 0.85rem;">
+                      <td colspan="5" style="text-align: right; font-weight: 700; color: #64748b; padding: 0.45rem 0.75rem;">Subtotal (sin IVA):</td>
+                      <td colspan="2" class="text-right" style="font-weight: 700; color: #475569; padding: 0.45rem 0.75rem;">\${{ auditOrderSubtotal(order) | number:'1.2-2' }}</td>
+                    </tr>
+                    <tr style="background: #f8fafc; font-size: 0.85rem;">
+                      <td colspan="5" style="text-align: right; font-weight: 700; color: #64748b; padding: 0.45rem 0.75rem;">+ IVA (16%):</td>
+                      <td colspan="2" class="text-right" style="font-weight: 700; color: #475569; padding: 0.45rem 0.75rem;">\${{ auditOrderTax(order) | number:'1.2-2' }}</td>
+                    </tr>
+                    <tr style="background: #f0fdf4; border-top: 1px solid #bbf7d0; font-size: 0.95rem;">
+                      <td colspan="5" style="text-align: right; font-weight: 800; color: #166534; padding: 0.55rem 0.75rem;">Total con IVA:</td>
+                      <td colspan="2" class="text-right" style="font-weight: 900; color: #059669; padding: 0.55rem 0.75rem;">\${{ auditOrderTotal(order) | number:'1.2-2' }}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -594,6 +625,15 @@ import { formatTableNumberLabel } from '../core/table-layouts';
               <button type="button" class="btn-ghost" (click)="closeAuditDetailModal()">
                 Cerrar Auditoría
               </button>
+              @if (canAnularOrder(order)) {
+                <button
+                  type="button"
+                  class="btn-action-danger"
+                  (click)="anularOrderFromAudit(order.id)"
+                >
+                  <i class="bi bi-x-circle-fill" aria-hidden="true"></i> Anular Comanda
+                </button>
+              }
               <button
                 type="button"
                 class="btn-action-primary"
@@ -1502,6 +1542,23 @@ import { formatTableNumberLabel } from '../core/table-layouts';
     .btn-action-primary:hover {
       filter: brightness(1.08);
     }
+
+    .btn-action-danger {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: #fff;
+      padding: 0.55rem 1.25rem;
+      border-radius: 0.65rem;
+      font-weight: 800;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+    }
+    .btn-action-danger:hover {
+      filter: brightness(1.08);
+    }
   `
 })
 export class AuditPageComponent {
@@ -1796,6 +1853,24 @@ export class AuditPageComponent {
     this.isAuditDetailModalOpen.set(false);
   }
 
+  canAnularOrder(order: Order): boolean {
+    return (this.state.isAdmin() || this.state.isCaja()) && order.status !== 'ANULADO';
+  }
+
+  anularOrderFromAudit(orderId: string): void {
+    const confirmed = window.confirm(
+      `¿Confirmas anular la comanda ${orderId}? Esta acción cambiará su estado a ANULADA y actualizará la base de datos.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const success = this.state.anularOrderInAudit(orderId);
+    if (success) {
+      this.closeAuditDetailModal();
+    }
+  }
+
   getUserDisplayName(userId?: string): string {
     if (!userId) return 'Sistema / No asignado';
     const user = this.state.users().find((u) => u.id === userId);
@@ -1837,11 +1912,20 @@ export class AuditPageComponent {
     return [...new Set(order.items.map((i) => i.restaurantId))];
   }
 
-  auditOrderTotal(order: Order): number {
+  auditOrderSubtotal(order: Order): number {
     const restaurant = this.auditRestaurantFilter();
     return order.items
-      .filter((item) => restaurant === 'ALL' || item.restaurantId === restaurant)
+      .filter((item) => (restaurant === 'ALL' || item.restaurantId === restaurant) && item.status !== 'ANULADO')
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  }
+
+  auditOrderTax(order: Order): number {
+    return this.auditOrderSubtotal(order) * PAPA_AND_SON_IVA_RATE;
+  }
+
+  auditOrderTotal(order: Order): number {
+    const subtotal = this.auditOrderSubtotal(order);
+    return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
   }
 
   tableLabel(order: Order): string {
@@ -1871,19 +1955,26 @@ export class AuditPageComponent {
     }
 
     const bcv = this.state.appSettings().bcvRate || 1;
-    const itemsHtml = order.items
-      .map(
-        (item) => `
-        <tr>
-          <td style="padding: 2px 0;">${item.quantity}x ${item.productName}</td>
-          <td style="text-align: right; padding: 2px 0;">$${(item.quantity * item.unitPrice).toFixed(2)}</td>
-        </tr>
-      `
-      )
-      .join('');
+    const subtotal = order.items
+      .filter((i) => i.status !== 'ANULADO')
+      .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+    const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
+    const totalUsd = subtotal + taxUsd;
+    const totalBs = totalUsd * bcv;
 
-    const totalUsd = order.paymentAmountUsd || this.auditOrderTotal(order);
-    const totalBs = order.paymentAmountBs || totalUsd * bcv;
+    const itemsHtml = order.items
+      .filter((item) => item.status !== 'ANULADO')
+      .map((item) => {
+        const itemUnitPriceWithTax = item.unitPrice * (1 + PAPA_AND_SON_IVA_RATE);
+        const itemTotalWithTax = item.quantity * itemUnitPriceWithTax;
+        return `
+        <tr>
+          <td style="padding: 3px 0;">${item.quantity}x ${item.productName}</td>
+          <td style="text-align: right; padding: 3px 0;">$${itemTotalWithTax.toFixed(2)}</td>
+        </tr>
+      `;
+      })
+      .join('');
 
     const ticketWindow = window.open('', '_blank', 'width=320,height=600');
     if (!ticketWindow) {
@@ -1928,6 +2019,8 @@ export class AuditPageComponent {
             </tbody>
           </table>
           <div class="divider"></div>
+          <div class="text-right">SUBTOTAL: $${subtotal.toFixed(2)}</div>
+          <div class="text-right">+ IVA (16%): $${taxUsd.toFixed(2)}</div>
           <div class="text-right bold" style="font-size: 13px;">TOTAL: $${totalUsd.toFixed(2)}</div>
           <div class="text-right">TOTAL BS: ${totalBs.toFixed(2)} Bs.</div>
           <div class="text-right" style="font-size: 10px;">Tasa BCV: ${bcv.toFixed(2)} Bs/$</div>

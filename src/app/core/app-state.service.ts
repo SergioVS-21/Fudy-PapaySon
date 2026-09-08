@@ -1228,6 +1228,31 @@ export class AppStateService {
     return true;
   }
 
+  anularOrderInAudit(orderId: string, reason = 'Pago rechazado / Anulada desde Auditoría'): boolean {
+    const order = this.orders().find((item) => item.id === orderId);
+    if (!order || order.status === 'ANULADO') {
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    this.orders.update((orders) =>
+      orders.map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              status: 'ANULADO' as const,
+              cancelledAt: now,
+              cancelledByUserId: this.currentUserId() || 'USR-CAJA-PAPAYSON',
+              updatedAt: now
+            }
+          : item
+      )
+    );
+
+    this.syncOrderById(orderId);
+    return true;
+  }
+
   deleteOrderItemInKitchen(orderId: string, itemId: string): boolean {
     if (!this.isAdmin()) {
       return false;
@@ -1734,6 +1759,20 @@ export class AppStateService {
         this.mapOrderDocToOrder(orderDoc, itemsByOrderId[orderDoc.id] ?? [])
       );
 
+      // Auto-regularización de PPS-000031 y PPS-000034 a estado ANULADO por rechazo de pago móvil en caja
+      const autoAnularIds = ['PPS-000031', 'PPS-000034'];
+      const nowIso = new Date().toISOString();
+      let hasAutoAnuladas = false;
+      remoteOrders.forEach((remoteOrder) => {
+        if (autoAnularIds.includes(remoteOrder.id) && remoteOrder.status !== 'ANULADO') {
+          remoteOrder.status = 'ANULADO';
+          remoteOrder.cancelledAt = remoteOrder.cancelledAt || nowIso;
+          remoteOrder.cancelledByUserId = remoteOrder.cancelledByUserId || 'USR-CAJA-PAPAYSON';
+          remoteOrder.updatedAt = nowIso;
+          hasAutoAnuladas = true;
+        }
+      });
+
       const currentOrders = this.orders();
       const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
 
@@ -1774,15 +1813,17 @@ export class AppStateService {
           );
 
         let finalStatus = remoteOrder.status;
-        if (localOrderTime > remoteOrderTime) {
+        if (remoteOrder.status === 'ANULADO' || localOrder.status === 'ANULADO' || autoAnularIds.includes(remoteOrder.id)) {
+          finalStatus = 'ANULADO';
+        } else if (localOrderTime > remoteOrderTime) {
           finalStatus = localOrder.status;
         }
         const isCobrado =
-          finalStatus === 'COBRADO' ||
+          (finalStatus === 'COBRADO' ||
           !!remoteOrder.closedAt ||
-          !!remoteOrder.paymentMethod ||
-          !!localOrder.closedAt ||
-          !!localOrder.paymentMethod;
+          !!localOrder.closedAt) &&
+          remoteOrder.paymentVerificationStatus !== 'RECHAZADO' &&
+          localOrder.paymentVerificationStatus !== 'RECHAZADO';
         if (allItemsDelivered && finalStatus !== 'ANULADO') {
           finalStatus = isCobrado ? 'COBRADO' : 'ENTREGADO';
         }
@@ -1809,6 +1850,10 @@ export class AppStateService {
             new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
         )
       );
+
+      if (hasAutoAnuladas) {
+        autoAnularIds.forEach((id) => this.syncOrderById(id));
+      }
 
       this.queueVerifiedPaymentNotifications(finalOrders);
 

@@ -1457,8 +1457,8 @@ export class ReportsPageComponent {
       .filter((i) => i.status !== 'ANULADO')
       .reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const taxUsd = subtotal * PAPA_AND_SON_IVA_RATE;
-    const totalUsd = order.paymentAmountUsd ?? (subtotal + taxUsd);
-    const totalBs = order.paymentAmountBs ?? (totalUsd * bcv);
+    const totalUsd = subtotal + taxUsd;
+    const totalBs = totalUsd * bcv;
 
     this.state.queueConsumptionPrintJob({
       restaurantIds: [...new Set(order.items.map((i) => i.restaurantId))],
@@ -1673,15 +1673,9 @@ export class ReportsPageComponent {
   }
 
   orderTotal(order: Order): number {
-    if (this.restaurant === 'ALL') {
-      if (order.paymentAmountUsd && order.paymentAmountUsd > 0) {
-        return order.paymentAmountUsd;
-      }
-      const subtotal = order.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-      return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
-    }
-
-    const items = order.items.filter((item) => item.restaurantId === this.restaurant);
+    const items = this.restaurant === 'ALL'
+      ? order.items.filter((item) => item.status !== 'ANULADO')
+      : order.items.filter((item) => item.restaurantId === this.restaurant && item.status !== 'ANULADO');
     const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     return subtotal * (1 + PAPA_AND_SON_IVA_RATE);
   }
