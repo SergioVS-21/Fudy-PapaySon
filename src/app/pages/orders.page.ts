@@ -388,7 +388,6 @@ interface DeliveredTableGroup {
                         <span class="line-status-chip chip-delivered">
                           <i class="bi bi-check2-all" aria-hidden="true"></i> Entregado
                         </span>
-                      } @else {
                         <span
                           class="line-status-chip chip-pending"
                           style="background: #fef3c7; color: #92400e; border: 1px solid #fde68a;"
@@ -3950,6 +3949,7 @@ export class OrdersPageComponent {
 
   readonly canAccessComandas = computed(() => this.state.canAccessModule('comandas'));
   readonly isAdmin = computed(() => this.state.isAdmin());
+  readonly isMesonero = computed(() => this.state.isMesonero());
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
   readonly dataError = computed(() => this.state.runtimeDataError());
   readonly defaultBillTipPercent = computed(() => this.state.appSettings().defaultTipPercent);
@@ -5302,14 +5302,7 @@ export class OrdersPageComponent {
     this.state.markItemDelivered(orderId, itemId);
   }
 
-  markItemReadyInOrders(event: Event, orderId: string, itemId: string): void {
-    event.stopPropagation();
-    this.state.markItemReady(orderId, itemId, 'ALL');
-  }
 
-  markAllReadyInOrders(orderId: string): void {
-    this.state.markOrderReady(orderId, 'ALL');
-  }
 
   selectedOrderTotalFor(order: Order, onlyUnpaid = false): number {
     if (!order || !order.items) return 0;
