@@ -8,7 +8,16 @@ service cloud.firestore {
     }
 
     match /appSettings/{id} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        resource == null ||
+        !('orderCounters' in resource.data) ||
+        (
+          'orderCounters' in request.resource.data &&
+          request.resource.data.orderCounters != null &&
+          request.resource.data.orderCounters.size() >= resource.data.orderCounters.size()
+        )
+      );
     }
 
     match /restaurants/{id} {
@@ -52,6 +61,10 @@ service cloud.firestore {
     }
 
     match /dailyClosures/{id} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /orderReturns/{id} {
       allow read, write: if isAuthenticated();
     }
   }

@@ -11,7 +11,9 @@ import {
   updateDoc,
   where,
   writeBatch,
-  orderBy
+  orderBy,
+  onSnapshot,
+  Unsubscribe
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
@@ -23,6 +25,7 @@ import {
   InventoryMovementDoc,
   OrderDoc,
   OrderItemDoc,
+  OrderItemReturnDoc,
   PrintJobDoc,
   ProductDoc,
   ProductCategoryDoc,
@@ -51,6 +54,10 @@ export class FirebaseDataService {
   private readonly dailyClosuresCollection = collection(
     firestoreDb,
     FIREBASE_COLLECTIONS.dailyClosures
+  );
+  private readonly orderReturnsCollection = collection(
+    firestoreDb,
+    FIREBASE_COLLECTIONS.orderReturns
   );
 
   async listRestaurants(): Promise<RestaurantDoc[]> {
@@ -100,6 +107,30 @@ export class FirebaseDataService {
     return snapshot.docs.map((item) => item.data() as OrderDoc);
   }
 
+  subscribeOrders(
+    onOrdersChange: (orders: OrderDoc[]) => void,
+    onError?: (error: unknown) => void
+  ): Unsubscribe {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    const q = query(
+      this.ordersCollection,
+      where('createdAt', '>=', cutoff.toISOString()),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const orders = snapshot.docs.map((item) => item.data() as OrderDoc);
+        onOrdersChange(orders);
+      },
+      (error) => {
+        console.error('[Firebase] Error en suscripción en tiempo real a comandas:', error);
+        onError?.(error);
+      }
+    );
+  }
+
   async listOrderItems(orderId: string): Promise<OrderItemDoc[]> {
     const itemsQuery = query(this.orderItemsCollection, where('orderId', '==', orderId));
     const snapshot = await getDocs(itemsQuery);
@@ -141,18 +172,19 @@ export class FirebaseDataService {
     await setDoc(doc(this.restaurantsCollection, input.id), input);
   }
 
-  async saveAppSettings(input: AppSettingsDoc): Promise<void> {
-    await setDoc(doc(this.appSettingsCollection, input.id), input);
+  async saveAppSettings(input: Partial<AppSettingsDoc> & { id: string }): Promise<void> {
+    await setDoc(doc(this.appSettingsCollection, input.id), input, { merge: true });
   }
 
   async reserveNextOrderId(input: {
     settingsId: string;
     counterKey: OrderCounterKey;
     prefix?: string;
+    minOrderNumber?: number;
   }): Promise<{ orderId: string; nextOrderNumber: number }> {
     const prefix = input.prefix ?? 'CMD';
     const settingsRef = doc(this.appSettingsCollection, input.settingsId);
-    const MAX_COLLISION_RETRIES = 2000;
+    const MAX_COLLISION_RETRIES = 5;
 
     return runTransaction(firestoreDb, async (transaction) => {
       const snapshot = await transaction.get(settingsRef);
@@ -163,11 +195,11 @@ export class FirebaseDataService {
       const existingCounters = existing?.orderCounters ?? {};
       let currentNumber = Math.max(
         0,
+        input.minOrderNumber ?? 0,
         existingCounters[input.counterKey] ?? (input.counterKey === 'GLOBAL' ? existing?.nextOrderNumber ?? 0 : 0)
       );
 
       // Verificar que el ID generado no exista ya en la colección de órdenes.
-      // Si existe (por ejemplo, porque el contador se reseteó), avanzar hasta encontrar un ID libre.
       let candidateId = `${prefix}-${String(currentNumber).padStart(6, '0')}`;
       for (let attempt = 0; attempt < MAX_COLLISION_RETRIES; attempt++) {
         const existingOrder = await transaction.get(doc(this.ordersCollection, candidateId));
@@ -261,6 +293,22 @@ export class FirebaseDataService {
 
   async saveDailyClosure(input: DailyClosureDoc): Promise<void> {
     await setDoc(doc(this.dailyClosuresCollection, input.id), input);
+  }
+
+  async listOrderReturns(): Promise<OrderItemReturnDoc[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    const q = query(
+      this.orderReturnsCollection,
+      where('createdAt', '>=', cutoff.toISOString()),
+      orderBy('createdAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((item) => item.data() as OrderItemReturnDoc);
+  }
+
+  async saveOrderReturn(input: OrderItemReturnDoc): Promise<void> {
+    await setDoc(doc(this.orderReturnsCollection, input.id), input);
   }
 
   async savePrintJob(input: PrintJobDoc): Promise<void> {

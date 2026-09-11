@@ -640,10 +640,27 @@ interface PaymentReceiptSnapshot {
                 <strong style="font-size: 0.95rem; color: #1e293b; display: block;">
                   Comandas en mesa {{ selectedPapaAndSonTableLabel() || clientTables(selectedActiveClientView()!) }}
                 </strong>
+
+                <!-- Membrete con fecha, hora y mesonero debajo de la identificación de la mesa -->
+                <div class="order-detail-meta" style="margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 0.8rem; color: #475569;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-calendar3" style="color: #d4a012;"></i>
+                    <strong>Fecha:</strong> {{ selectedActiveClientView()!.lastActivityAt | date:'dd/MM/yyyy' }}
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-clock-history" style="color: #d4a012;"></i>
+                    <strong>Hora:</strong> {{ selectedActiveClientView()!.lastActivityAt | date:'hh:mm a' }}
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-person-badge-fill" style="color: #d4a012;"></i>
+                    <strong>Mesonero:</strong> {{ createdBySummary(selectedActiveClientView()!.orders) }}
+                  </span>
+                </div>
+
                 @if (selectedPapaAndSonTableClientViews().length > 1) {
-                  <small style="color: #64748b; font-size: 0.75rem;">{{ selectedPapaAndSonTableClientViews().length }} cuentas en esta mesa. Selecciona la cédula a cobrar o usa cobrar todo.</small>
+                  <small style="color: #64748b; font-size: 0.75rem; display: block; margin-top: 0.35rem;">{{ selectedPapaAndSonTableClientViews().length }} cuentas en esta mesa. Selecciona la cédula a cobrar o usa cobrar todo.</small>
                 } @else {
-                  <small style="color: #64748b; font-size: 0.75rem;">1 comanda activa en esta mesa.</small>
+                  <small style="color: #64748b; font-size: 0.75rem; display: block; margin-top: 0.35rem;">1 comanda activa en esta mesa.</small>
                 }
               </div>
 
@@ -685,6 +702,11 @@ interface PaymentReceiptSnapshot {
                     Cédula {{ selectedActiveClientView()!.clientDocumentId || 'No registrada' }} ·
                     {{ selectedActiveClientView()!.itemCount }} items · Mesas {{ clientTables(selectedActiveClientView()!) }}
                   </small>
+                  <div style="margin-top: 0.3rem; font-size: 0.78rem; color: #475569; display: flex; flex-wrap: wrap; gap: 0.75rem;">
+                    <span><i class="bi bi-calendar3"></i> <strong>Fecha:</strong> {{ selectedActiveClientView()!.lastActivityAt | date:'dd/MM/yyyy' }}</span>
+                    <span><i class="bi bi-clock-history"></i> <strong>Hora:</strong> {{ selectedActiveClientView()!.lastActivityAt | date:'hh:mm a' }}</span>
+                    <span><i class="bi bi-person-badge-fill"></i> <strong>Mesonero:</strong> {{ createdBySummary(selectedActiveClientView()!.orders) }}</span>
+                  </div>
                   <span class="status-pill" [class]="'status-pill ' + cashierStatusClass(selectedActiveClientView()!.orders)">
                     {{ cashierStatusLabel(selectedActiveClientView()!.orders) }}
                   </span>
@@ -700,6 +722,11 @@ interface PaymentReceiptSnapshot {
                 <div class="cashier-side-summary" style="flex: 1;">
                   <strong>{{ selectedHistoryOrderView()!.order.clientName }}</strong>
                   <small>{{ selectedHistoryOrderView()!.localLabel }} · Mesa {{ tableLabel(selectedHistoryOrderView()!.order) }}</small>
+                  <div style="margin-top: 0.3rem; font-size: 0.78rem; color: #475569; display: flex; flex-wrap: wrap; gap: 0.75rem;">
+                    <span><i class="bi bi-calendar3"></i> <strong>Fecha:</strong> {{ selectedHistoryOrderView()!.order.createdAt | date:'dd/MM/yyyy' }}</span>
+                    <span><i class="bi bi-clock-history"></i> <strong>Hora:</strong> {{ selectedHistoryOrderView()!.order.createdAt | date:'hh:mm a' }}</span>
+                    <span><i class="bi bi-person-badge-fill"></i> <strong>Mesonero:</strong> {{ createdByLabel(selectedHistoryOrderView()!.order.createdByUserId) }}</span>
+                  </div>
                   <span class="status-pill" [class]="'status-pill ' + orderStatusClass(selectedHistoryOrderView()!.order.status)">
                     {{ orderStatusLabel(selectedHistoryOrderView()!.order.status) }}
                   </span>
@@ -2815,7 +2842,7 @@ export class DashboardPageComponent {
   private readonly state = inject(AppStateService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly pageSize = 5;
-  private readonly refreshIntervalMs = 1000;
+  private readonly refreshIntervalMs = 60000;
 
   readonly viewMode = signal<'ACTIVAS' | 'HISTORIAL'>('ACTIVAS');
   readonly selectedRestaurant = signal<RestaurantId | 'ALL'>('ALL');
@@ -3043,8 +3070,9 @@ export class DashboardPageComponent {
   readonly activeViews = computed<CashierClientView[]>(() => {
     const groupedClients = new Map<string, CashierClientView>();
 
-    this.state.orders().forEach((order) => {
-      if (order.status === 'ANULADO') {
+    this.state.getVisibleOrdersForModule('dashboard').forEach((order) => {
+      // Si la comanda está anulada o la sesión de la mesa ya fue cerrada, NO debe figurar en caja
+      if (order.status === 'ANULADO' || !!order.tableClosedAt) {
         return;
       }
 
@@ -3052,8 +3080,9 @@ export class DashboardPageComponent {
       const unpaidItems = uncancelledItems.filter((item) => !item.paid);
       const undeliveredItems = uncancelledItems.filter((item) => item.status !== 'ENTREGADO');
 
-      const isDelivered = uncancelledItems.length > 0 && undeliveredItems.length === 0;
-      const isPaid = (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) && unpaidItems.length === 0;
+      const isCobrado = order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod;
+      const isPaid = isCobrado || (uncancelledItems.length > 0 && unpaidItems.length === 0);
+      const isDelivered = uncancelledItems.length === 0 || undeliveredItems.length === 0;
 
       // Se libera de la mesa SOLO cuando se cumplen AMBAS condiciones:
       // 1. Ya fue cobrada (isPaid)
@@ -3062,13 +3091,13 @@ export class DashboardPageComponent {
         return;
       }
 
-      if (!uncancelledItems.length) {
+      if (!uncancelledItems.length && !isCobrado) {
         return;
       }
 
       // Tomamos los ítems pendientes de cobro; si la comanda ya está cobrada pero aún no entregada, tomamos todos los no cancelados
-      const payableItems = unpaidItems.length > 0 ? unpaidItems : uncancelledItems;
-      if (!payableItems.length) {
+      const payableItems = (!isCobrado && unpaidItems.length > 0) ? unpaidItems : uncancelledItems;
+      if (!payableItems.length && !isCobrado) {
         return;
       }
 
@@ -3266,9 +3295,11 @@ export class DashboardPageComponent {
       return false;
     }
     return clientView.orders.every((order) => {
+      if (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) {
+        return true;
+      }
       const uncancelled = order.items.filter((item) => item.status !== 'ANULADO');
-      const allItemsPaid = uncancelled.length > 0 && uncancelled.every((item) => item.paid);
-      return (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) || allItemsPaid;
+      return uncancelled.length > 0 && uncancelled.every((item) => item.paid);
     });
   });
 
@@ -3278,10 +3309,26 @@ export class DashboardPageComponent {
       return;
     }
 
-    clientView.orderIds.forEach((orderId) => {
+    const orderIds = [...clientView.orderIds];
+    const tableNumbers = [
+      ...new Set(clientView.orders.map((o) => o.tableNumber))
+    ].filter((t) => t > 0);
+    const selectedTbl = this.selectedPapaAndSonTableNumber();
+    if (selectedTbl && !tableNumbers.includes(selectedTbl)) {
+      tableNumbers.push(selectedTbl);
+    }
+
+    orderIds.forEach((orderId) => {
       this.state.markDelivered(orderId);
     });
 
+    tableNumbers.forEach((tbl) => {
+      this.state.closeTableSession(tbl, orderIds);
+      this.state.checkAndCloseTableSession(tbl);
+    });
+
+    this.selectedClientKey.set(null);
+    this.selectedOrderId.set(null);
     this.closeDetail();
   }
 

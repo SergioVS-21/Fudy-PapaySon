@@ -163,7 +163,12 @@ interface AreaSection {
                                 </span>
                               }
                             </div>
-                            <span class="ops-order-ref">#{{ order.id }}</span>
+                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+                              <span class="ops-order-ref">#{{ order.id }}</span>
+                              <span class="ops-order-time-badge" [class]="'ops-order-time-badge ' + getElapsedTimeClass(order.createdAt)" [title]="'Creada a las ' + (order.createdAt | date:'hh:mm:ss a')">
+                                <i class="bi bi-clock-history" aria-hidden="true"></i> {{ getElapsedTime(order.createdAt) }}
+                              </span>
+                            </div>
                           </div>
 
                           <div class="ops-order-body">
@@ -219,7 +224,7 @@ interface AreaSection {
                                 class="btn-dismiss-order-btn"
                                 style="font-size: 0.72rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.3rem 0.55rem; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
                                 title="Dejar de mostrar esta comanda en la pantalla"
-                                (click)="$event.stopPropagation(); dismissOrder(order.id)"
+                                (click)="$event.stopPropagation(); dismissOrder(order.id, section.area)"
                               >
                                 <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar
                               </button>
@@ -304,7 +309,12 @@ interface AreaSection {
                               </span>
                             }
                           </div>
-                          <span class="ops-order-ref">#{{ order.id }}</span>
+                          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+                            <span class="ops-order-ref">#{{ order.id }}</span>
+                            <span class="ops-order-time-badge" [class]="'ops-order-time-badge ' + getElapsedTimeClass(order.createdAt)" [title]="'Creada a las ' + (order.createdAt | date:'hh:mm:ss a')">
+                              <i class="bi bi-clock-history" aria-hidden="true"></i> {{ getElapsedTime(order.createdAt) }}
+                            </span>
+                          </div>
                         </div>
 
                         <div class="ops-order-body">
@@ -449,7 +459,12 @@ interface AreaSection {
                               </span>
                             }
                           </div>
-                          <span class="ops-order-ref">#{{ order.id }}</span>
+                          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+                            <span class="ops-order-ref">#{{ order.id }}</span>
+                            <span class="ops-order-time-badge" [class]="'ops-order-time-badge ' + getElapsedTimeClass(order.createdAt)" [title]="'Creada a las ' + (order.createdAt | date:'hh:mm:ss a')">
+                              <i class="bi bi-clock-history" aria-hidden="true"></i> {{ getElapsedTime(order.createdAt) }}
+                            </span>
+                          </div>
                         </div>
 
                         <div class="ops-order-body">
@@ -505,7 +520,7 @@ interface AreaSection {
                               class="btn-dismiss-order-btn"
                               style="font-size: 0.72rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.3rem 0.55rem; border-radius: 0.5rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;"
                               title="Dejar de mostrar esta comanda en la pantalla"
-                              (click)="$event.stopPropagation(); dismissOrder(order.id)"
+                              (click)="$event.stopPropagation(); dismissOrder(order.id, selectedArea())"
                             >
                               <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar
                             </button>
@@ -604,6 +619,25 @@ interface AreaSection {
               <div>
                 <strong>{{ selectedOrder()!.clientName }}</strong>
                 <small>{{ selectedOrder()!.items.length }} items | Mesa {{ tableLabel(selectedOrder()!) }}</small>
+                <!-- Membrete con fecha, hora y mesonero debajo de la identificación de la mesa -->
+                <div class="order-detail-meta" style="margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; font-size: 0.78rem; color: #cbd5e1;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-calendar3" style="color: #38bdf8;"></i>
+                    <strong>Fecha:</strong> {{ selectedOrder()!.createdAt | date:'dd/MM/yyyy' }}
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-clock-history" style="color: #38bdf8;"></i>
+                    <strong>Hora:</strong> {{ selectedOrder()!.createdAt | date:'hh:mm a' }}
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-stopwatch" style="color: #f59e0b;"></i>
+                    <strong>Tiempo:</strong> {{ getElapsedTime(selectedOrder()!.createdAt) }}
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="bi bi-person-badge-fill" style="color: #38bdf8;"></i>
+                    <strong>Mesonero:</strong> {{ getCreatorLabel(selectedOrder()!) }}
+                  </span>
+                </div>
               </div>
               <span class="ops-order-ref">#{{ selectedOrder()!.id }}</span>
             </div>
@@ -681,7 +715,7 @@ interface AreaSection {
                 class="btn-dismiss-order-btn"
                 style="width: 100%; margin-top: 0.75rem; font-size: 0.85rem; font-weight: 800; color: #dc2626; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.6rem 1rem; border-radius: 0.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.4rem;"
                 title="Dejar de mostrar esta comanda en la pantalla"
-                (click)="dismissOrder(selectedOrder()!.id)"
+                (click)="dismissOrder(selectedOrder()!.id, selectedArea() === 'ALL' ? undefined : selectedArea())"
               >
                 <i class="bi bi-eye-slash" aria-hidden="true"></i> Dejar de mostrar comanda
               </button>
@@ -1296,6 +1330,43 @@ interface AreaSection {
       white-space: nowrap;
     }
 
+    .ops-order-time-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.45rem;
+      white-space: nowrap;
+      line-height: 1.2;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .ops-order-time-badge.time-normal {
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+
+    .ops-order-time-badge.time-warning {
+      background: #fefce8;
+      color: #854d0e;
+      border: 1px solid #fde047;
+    }
+
+    .ops-order-time-badge.time-urgent {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+      animation: pulse-urgent 2s infinite;
+    }
+
+    @keyframes pulse-urgent {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+
     .ops-order-body {
       display: grid;
       gap: 0.35rem;
@@ -1570,7 +1641,7 @@ interface AreaSection {
 export class OpsScreenPageComponent {
   private readonly state = inject(AppStateService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly refreshIntervalMs = 3000;
+  private readonly refreshIntervalMs = 15000;
 
   readonly selectedArea = signal<AreaId | 'ALL'>('ALL');
   readonly selectedRestaurant = signal<RestaurantId | 'ALL'>('ALL');
@@ -1580,6 +1651,7 @@ export class OpsScreenPageComponent {
   readonly isDataLoading = computed(() => this.state.runtimeDataLoading());
   readonly dataError = computed(() => this.state.runtimeDataError());
   readonly bcvRate = computed(() => this.state.appSettings().bcvRate);
+  readonly currentTime = signal<number>(Date.now());
   private readonly allAreaOptions: Array<{ label: string; value: AreaId | 'ALL' }> = [
     { label: 'Todos', value: 'ALL' },
     { label: 'Cocina', value: 'COCINA' },
@@ -1622,6 +1694,7 @@ export class OpsScreenPageComponent {
     void this.refreshOrdersLive();
 
     const timerId = setInterval(() => {
+      this.currentTime.set(Date.now());
       void this.refreshOrdersLive();
     }, this.refreshIntervalMs);
 
@@ -1661,13 +1734,16 @@ export class OpsScreenPageComponent {
     });
   }
 
-  dismissOrder(orderId: string): void {
+  dismissOrder(orderId: string, area?: AreaId | 'ALL'): void {
+    const targetArea = (area && area !== 'ALL') ? area : undefined;
+    const key = targetArea ? `${orderId}::${targetArea}` : orderId;
     this.dismissedOrderIds.update((set) => {
       const next = new Set(set);
-      next.add(orderId);
+      next.add(key);
       this.saveDismissedOrderIds(next);
       return next;
     });
+    this.state.dismissOrderInOps(orderId, targetArea);
     if (this.selectedOrderId() === orderId) {
       this.closeDetail();
     }
@@ -1677,8 +1753,32 @@ export class OpsScreenPageComponent {
     return this.dismissedItemIds().has(itemId);
   }
 
-  isOrderDismissed(orderId: string): boolean {
-    return this.dismissedOrderIds().has(orderId);
+  isOrderDismissed(orderId: string, area?: AreaId | 'ALL'): boolean {
+    const order = this.state.orders().find((o) => o.id === orderId);
+    if (!order) {
+      return false;
+    }
+
+    // Si la orden aún tiene artículos pendientes en esta área, NUNCA está descartada
+    if (this.hasPendingItems(order, area)) {
+      return false;
+    }
+
+    if (this.dismissedOrderIds().has(orderId)) {
+      return true;
+    }
+    if (order.opsDismissedAt) {
+      return true;
+    }
+    if (area && area !== 'ALL') {
+      if (this.dismissedOrderIds().has(`${orderId}::${area}`)) {
+        return true;
+      }
+      if (order.opsDismissedAreas?.includes(area)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   readonly recentItemsHistory = computed(() => {
@@ -1699,6 +1799,9 @@ export class OpsScreenPageComponent {
     }> = [];
 
     for (const order of allOrders) {
+      if (this.isOrderDismissed(order.id) || order.opsDismissedAt) {
+        continue;
+      }
       for (const item of order.items) {
         if (selectedRestaurant !== 'ALL' && item.restaurantId !== selectedRestaurant) {
           continue;
@@ -1738,7 +1841,7 @@ export class OpsScreenPageComponent {
     return areas.map((area) => {
       const baseQueue = this.state.getAreaQueue(area, 'ALL');
       const orders = baseQueue
-        .filter((order) => !this.isOrderDismissed(order.id))
+        .filter((order) => !this.isOrderDismissed(order.id, area))
         .map((order) => ({
           ...order,
           items: order.items.filter((item) => (restaurantFilter === 'ALL' || item.restaurantId === restaurantFilter) && !this.isItemDismissed(item.id))
@@ -1774,7 +1877,7 @@ export class OpsScreenPageComponent {
     return restaurants
       .map((restaurantId) => {
         const orders = baseQueue
-          .filter((order) => !this.isOrderDismissed(order.id))
+          .filter((order) => !this.isOrderDismissed(order.id, area))
           .map((order) => ({
             ...order,
             items: order.items.filter((item) => item.restaurantId === restaurantId && !this.isItemDismissed(item.id))
@@ -1847,27 +1950,28 @@ export class OpsScreenPageComponent {
 
         if (selectedArea !== 'ALL') {
           const hasSubItems = !!(item.subItems && item.subItems.length > 0);
-          if (hasSubItems) {
-            const hasSubItemInArea = item.subItems!.some((sub) => sub.area === selectedArea && !sub.ready);
-            if (!hasSubItemInArea) {
-              return false;
-            }
-          } else {
-            if (item.area !== selectedArea) {
-              return false;
-            }
+          const matchesMainArea = item.area === selectedArea;
+          const matchesSubArea = hasSubItems && item.subItems!.some((sub) => sub.area === selectedArea && !sub.ready);
+          if (!matchesMainArea && !matchesSubArea) {
+            return false;
           }
         }
 
         return true;
       }).map((item) => {
         if (selectedArea !== 'ALL' && item.subItems && item.subItems.length > 0) {
-          const matchingSubItems = item.subItems
-            .filter((sub) => sub.area === selectedArea && !sub.ready)
-            .map((sub) => sub.name)
-            .join(' | ');
-          if (matchingSubItems) {
+          const subItemsForArea = item.subItems.filter((sub) => sub.area === selectedArea);
+          if (subItemsForArea.length > 0) {
+            const matchingSubItems = subItemsForArea
+              .map((sub) => sub.ready ? `${sub.name} ✓` : sub.name)
+              .join(' | ');
             return { ...item, productName: `${item.productName} (${matchingSubItems})` };
+          }
+          if (item.area === selectedArea) {
+            const comboComponents = item.subItems
+              .map((sub) => sub.ready ? `${sub.name} ✓` : sub.name)
+              .join(' | ');
+            return { ...item, productName: `${item.productName} [${comboComponents}]` };
           }
         }
         return item;
@@ -1899,13 +2003,20 @@ export class OpsScreenPageComponent {
       return true;
     }
     const targetArea = area ?? this.selectedArea();
-    if (targetArea !== 'ALL' && item.subItems && item.subItems.length > 0) {
-      const subsInArea = item.subItems.filter((sub) => sub.area === targetArea);
+    if (targetArea === 'ALL') {
+      return false;
+    }
+
+    const hasSubs = !!(item.subItems && item.subItems.length > 0);
+    if (hasSubs) {
+      const subsInArea = item.subItems!.filter((sub) => sub.area === targetArea);
       if (subsInArea.length > 0) {
         return subsInArea.every((sub) => sub.ready);
       }
+      return true;
     }
-    return false;
+
+    return item.area === targetArea ? false : true;
   }
 
   isOrderAllDelivered(order: Order, area: AreaId | 'ALL' = 'ALL'): boolean {
@@ -1933,25 +2044,39 @@ export class OpsScreenPageComponent {
     const targetArea = area ?? this.selectedArea();
     if (targetArea !== 'ALL') {
       return order.items.some((item) => {
-        if (item.area === targetArea) {
-          return !this.isItemReadyForArea(item, targetArea);
+        if (item.status === 'ANULADO' || item.status === 'ENTREGADO') return false;
+        const hasSubs = !!(item.subItems && item.subItems.length > 0);
+        if (hasSubs) {
+          const subsInArea = item.subItems!.filter((s) => s.area === targetArea);
+          return subsInArea.some((s) => !s.ready);
         }
-        if (item.subItems && item.subItems.some((s) => s.area === targetArea)) {
-          return !this.isItemReadyForArea(item, targetArea);
-        }
-        return false;
+        return item.area === targetArea && item.status !== 'LISTO';
       });
     }
-    return order.items.some((item) => !this.isItemReadyForArea(item, item.area));
+    return order.items.some((item) => {
+      if (item.status === 'ANULADO' || item.status === 'ENTREGADO') return false;
+      if (item.subItems && item.subItems.length > 0) {
+        return item.subItems.some((s) => !s.ready);
+      }
+      return item.status !== 'LISTO';
+    });
   }
 
   markNextPendingItemReady(order: Order, specificArea?: AreaId | 'ALL'): void {
     const targetArea = specificArea ?? (this.selectedArea() === 'ALL' ? undefined : this.selectedArea());
     const pendingItem = order.items.find((item) => {
+      if (item.status === 'ANULADO' || item.status === 'ENTREGADO' || item.status === 'LISTO') return false;
       if (targetArea && targetArea !== 'ALL') {
-        return !this.isItemReadyForArea(item, targetArea);
+        const hasSubs = !!(item.subItems && item.subItems.length > 0);
+        if (hasSubs) {
+          return item.subItems!.some((s) => s.area === targetArea && !s.ready);
+        }
+        return item.area === targetArea;
       }
-      return !this.isItemReadyForArea(item, item.area);
+      if (item.subItems && item.subItems.length > 0) {
+        return item.subItems.some((s) => !s.ready);
+      }
+      return true;
     });
     if (!pendingItem) {
       return;
@@ -2065,6 +2190,38 @@ export class OpsScreenPageComponent {
     return formatTableNumberLabel(order.tableNumber, order.items.map((item) => item.restaurantId));
   }
 
+  getElapsedTime(createdAt: string): string {
+    if (!createdAt) return '';
+    const created = new Date(createdAt).getTime();
+    if (isNaN(created)) return '';
+    const diffMs = Math.max(0, this.currentTime() - created);
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) {
+      return '< 1 min';
+    }
+    if (diffMins < 60) {
+      return `${diffMins} min`;
+    }
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours}h ${mins}m`;
+  }
+
+  getElapsedTimeClass(createdAt: string): string {
+    if (!createdAt) return 'time-normal';
+    const created = new Date(createdAt).getTime();
+    if (isNaN(created)) return 'time-normal';
+    const diffMs = Math.max(0, this.currentTime() - created);
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins >= 30) {
+      return 'time-urgent';
+    }
+    if (diffMins >= 15) {
+      return 'time-warning';
+    }
+    return 'time-normal';
+  }
+
   buildOrderGroups(order: Order): OrderRestaurantGroup[] {
     const restaurantIds = [...new Set(order.items.map((item) => item.restaurantId))];
     return restaurantIds.map((restaurantId) => {
@@ -2073,7 +2230,7 @@ export class OpsScreenPageComponent {
       );
       const areas = [...new Set(restaurantItems.flatMap((item) => {
         if (item.subItems && item.subItems.length > 0) {
-          return item.subItems.map(sub => sub.area);
+          return item.subItems.map((sub) => sub.area);
         }
         return [item.area];
       }))];
@@ -2090,11 +2247,11 @@ export class OpsScreenPageComponent {
             return item.area === area;
           }).map((item) => {
             if (item.subItems && item.subItems.length > 0) {
-              const matchingSubItems = item.subItems
-                .filter((sub) => sub.area === area && !sub.ready)
-                .map((sub) => sub.name)
-                .join(' | ');
-              if (matchingSubItems) {
+              const subItemsForArea = item.subItems.filter((sub) => sub.area === area);
+              if (subItemsForArea.length > 0) {
+                const matchingSubItems = subItemsForArea
+                  .map((sub) => sub.ready ? `${sub.name} ✓` : sub.name)
+                  .join(' | ');
                 return { ...item, productName: `${item.productName} (${matchingSubItems})` };
               }
             }

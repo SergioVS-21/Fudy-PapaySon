@@ -2,7 +2,7 @@ import { CommonModule, DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppStateService } from '../core/app-state.service';
-import { Order, OrderStatus, RestaurantId } from '../core/models';
+import { Order, OrderItemReturn, OrderStatus, RestaurantId } from '../core/models';
 import { formatTableNumberLabel } from '../core/table-layouts';
 
 const PAPA_AND_SON_IVA_RATE = 0.16;
@@ -40,6 +40,31 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
             </div>
           </header>
 
+          <!-- NAVEGACIÓN DE SECCIONES (COMANDAS vs DEVOLUCIONES) -->
+          <nav class="audit-section-tabs" aria-label="Secciones de auditoría">
+            <button
+              type="button"
+              class="audit-section-tab-btn"
+              [class.active]="auditSection() === 'COMANDAS'"
+              (click)="setAuditSection('COMANDAS')"
+            >
+              <i class="bi bi-receipt-cutoff" aria-hidden="true"></i>
+              <span>Auditoría de Comandas</span>
+              <span class="section-tab-badge">{{ allAuditOrders().length }}</span>
+            </button>
+            <button
+              type="button"
+              class="audit-section-tab-btn"
+              [class.active]="auditSection() === 'DEVOLUCIONES'"
+              (click)="setAuditSection('DEVOLUCIONES')"
+            >
+              <i class="bi bi-arrow-return-left" aria-hidden="true"></i>
+              <span>Devoluciones de Productos</span>
+              <span class="section-tab-badge badge-returns">{{ allReturns().length }}</span>
+            </button>
+          </nav>
+
+          @if (auditSection() === 'COMANDAS') {
           <!-- PANEL PRINCIPAL DE AUDITORIA -->
           <article class="panel audit-main-panel">
             <!-- Métricas Rápidas KPI -->
@@ -442,6 +467,310 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
               </div>
             }
           </article>
+          } @else {
+          <!-- PANEL PRINCIPAL DE DEVOLUCIONES -->
+          <article class="panel audit-main-panel audit-returns-panel">
+            <!-- Métricas Rápidas KPI Devoluciones -->
+            <div class="audit-kpi-strip">
+              <div class="kpi-card">
+                <span class="kpi-tag">TOTAL DEVOLUCIONES</span>
+                <strong class="kpi-number">{{ returnCounts().totalReturns }}</strong>
+                <small class="kpi-hint">Eventos registrados</small>
+              </div>
+              <div class="kpi-card card-anulado">
+                <span class="kpi-tag">PRODUCTOS DEVUELTOS</span>
+                <strong class="kpi-number">{{ returnCounts().totalItems }}</strong>
+                <small class="kpi-hint">Unidades devueltas</small>
+              </div>
+              <div class="kpi-card card-pendiente">
+                <span class="kpi-tag">MONTO TOTAL ($)</span>
+                <strong class="kpi-number">\${{ returnCounts().totalMontoUsd | number:'1.2-2' }}</strong>
+                <small class="kpi-hint">Con IVA no facturado</small>
+              </div>
+              <div class="kpi-card card-proceso">
+                <span class="kpi-tag">MONTO TOTAL (BS)</span>
+                <strong class="kpi-number">Bs. {{ returnCounts().totalMontoBs | number:'1.2-2' }}</strong>
+                <small class="kpi-hint">Tasa BCV actual</small>
+              </div>
+              <div class="kpi-card card-cobrado">
+                <span class="kpi-tag">DEVOLUCIONES HOY</span>
+                <strong class="kpi-number">{{ returnCounts().returnsToday }}</strong>
+                <small class="kpi-hint">Registradas el día de hoy</small>
+              </div>
+            </div>
+
+            <!-- Selector de Rango de Fechas para Devoluciones -->
+            <div class="audit-date-bar">
+              <div class="date-presets-group">
+                <span class="date-bar-label"><i class="bi bi-calendar3" aria-hidden="true"></i> Periodo:</span>
+                <button
+                  type="button"
+                  class="date-preset-chip"
+                  [class.active]="returnDatePreset() === 'ALL'"
+                  (click)="setReturnDatePreset('ALL')"
+                >
+                  Todas las fechas
+                </button>
+                <button
+                  type="button"
+                  class="date-preset-chip"
+                  [class.active]="returnDatePreset() === 'HOY'"
+                  (click)="setReturnDatePreset('HOY')"
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  class="date-preset-chip"
+                  [class.active]="returnDatePreset() === 'AYER'"
+                  (click)="setReturnDatePreset('AYER')"
+                >
+                  Ayer
+                </button>
+                <button
+                  type="button"
+                  class="date-preset-chip"
+                  [class.active]="returnDatePreset() === 'SEMANA'"
+                  (click)="setReturnDatePreset('SEMANA')"
+                >
+                  Últimos 7 días
+                </button>
+                <button
+                  type="button"
+                  class="date-preset-chip"
+                  [class.active]="returnDatePreset() === 'MES'"
+                  (click)="setReturnDatePreset('MES')"
+                >
+                  Este mes
+                </button>
+              </div>
+
+              <div class="custom-date-range">
+                <label class="date-input-wrap">
+                  <span>Desde:</span>
+                  <input
+                    type="date"
+                    class="date-picker-input"
+                    [value]="returnDateFrom()"
+                    (change)="onReturnDateFromChange($event)"
+                  />
+                </label>
+                <label class="date-input-wrap">
+                  <span>Hasta:</span>
+                  <input
+                    type="date"
+                    class="date-picker-input"
+                    [value]="returnDateTo()"
+                    (change)="onReturnDateToChange($event)"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <!-- Barra de Filtros y Búsqueda -->
+            <div class="audit-filter-bar">
+              <div class="audit-search-box">
+                <i class="bi bi-search" aria-hidden="true"></i>
+                <input
+                  type="text"
+                  placeholder="Buscar por Comanda #, Producto, Mesa, Motivo o Usuario..."
+                  [ngModel]="returnSearchQuery()"
+                  (ngModelChange)="returnSearchQuery.set($event); returnCurrentPage.set(1)"
+                />
+                @if (returnSearchQuery()) {
+                  <button type="button" class="btn-clear-search" (click)="returnSearchQuery.set(''); returnCurrentPage.set(1)" title="Borrar búsqueda">
+                    <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+                  </button>
+                }
+              </div>
+
+              <div class="audit-dropdown-filters">
+                <!-- Selector de Local -->
+                <label class="filter-field">
+                  <span>Local</span>
+                  <select [ngModel]="returnRestaurantFilter()" (ngModelChange)="returnRestaurantFilter.set($event); returnCurrentPage.set(1)">
+                    @if (canSelectAllRestaurants()) {
+                      <option value="ALL">Todos los locales</option>
+                    }
+                    @for (local of localKeys(); track local) {
+                      <option [value]="local">{{ localLabel(local) }}</option>
+                    }
+                  </select>
+                </label>
+
+                <!-- Selector de Estado Previo -->
+                <label class="filter-field">
+                  <span>Estado al Devolver</span>
+                  <select [ngModel]="returnStatusFilter()" (ngModelChange)="returnStatusFilter.set($event); returnCurrentPage.set(1)">
+                    <option value="ALL">Todos los estados</option>
+                    <option value="ENTREGADO">Estaba Entregado</option>
+                    <option value="LISTO">Estaba Listo</option>
+                    <option value="EN_PROCESO">Estaba En Proceso</option>
+                    <option value="PENDIENTE">Estaba Pendiente</option>
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  class="btn-reset-filters"
+                  (click)="resetReturnFilters()"
+                  title="Restablecer filtros"
+                >
+                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restablecer filtros
+                </button>
+              </div>
+            </div>
+
+            <!-- Tabla de Devoluciones -->
+            @if (filteredReturns().length > 0) {
+              <div class="audit-table-wrapper">
+                <table class="audit-table">
+                  <thead>
+                    <tr>
+                      <th (click)="sortReturnsBy('returnedAt')" class="sortable-th">
+                        Fecha / Hora
+                        @if (returnSortColumn() === 'returnedAt') {
+                          <i class="bi" [class.bi-chevron-up]="returnSortDirection() === 'asc'" [class.bi-chevron-down]="returnSortDirection() === 'desc'"></i>
+                        }
+                      </th>
+                      <th (click)="sortReturnsBy('orderId')" class="sortable-th">
+                        Comanda
+                        @if (returnSortColumn() === 'orderId') {
+                          <i class="bi" [class.bi-chevron-up]="returnSortDirection() === 'asc'" [class.bi-chevron-down]="returnSortDirection() === 'desc'"></i>
+                        }
+                      </th>
+                      <th>Mesa</th>
+                      <th (click)="sortReturnsBy('productName')" class="sortable-th">
+                        Producto Devuelto
+                        @if (returnSortColumn() === 'productName') {
+                          <i class="bi" [class.bi-chevron-up]="returnSortDirection() === 'asc'" [class.bi-chevron-down]="returnSortDirection() === 'desc'"></i>
+                        }
+                      </th>
+                      <th (click)="sortReturnsBy('quantity')" class="sortable-th text-center">
+                        Cant.
+                        @if (returnSortColumn() === 'quantity') {
+                          <i class="bi" [class.bi-chevron-up]="returnSortDirection() === 'asc'" [class.bi-chevron-down]="returnSortDirection() === 'desc'"></i>
+                        }
+                      </th>
+                      <th class="text-right">Unitario</th>
+                      <th (click)="sortReturnsBy('totalWithTax')" class="sortable-th text-right">
+                        Monto Devuelto
+                        @if (returnSortColumn() === 'totalWithTax') {
+                          <i class="bi" [class.bi-chevron-up]="returnSortDirection() === 'asc'" [class.bi-chevron-down]="returnSortDirection() === 'desc'"></i>
+                        }
+                      </th>
+                      <th>Estado previo</th>
+                      <th>Autorización</th>
+                      <th>Motivo</th>
+                      <th class="text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (ret of paginatedReturns(); track ret.id) {
+                      <tr class="audit-row">
+                        <td class="col-date">
+                          <span class="primary-date">{{ ret.returnedAt | date:'dd/MM/yyyy' }}</span>
+                          <span class="secondary-time">{{ ret.returnedAt | date:'hh:mm a' }}</span>
+                        </td>
+                        <td class="col-id">
+                          <span class="order-id-badge">#{{ ret.orderId }}</span>
+                        </td>
+                        <td class="col-table">
+                          <span class="table-pill">{{ ret.tableLabel || ('Mesa ' + ret.tableNumber) }}</span>
+                        </td>
+                        <td class="col-client">
+                          <strong style="color: #1e293b; display: block;">{{ ret.productName }}</strong>
+                          <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">
+                            {{ localLabel(ret.restaurantId) }} &bull; {{ ret.area }}
+                          </div>
+                        </td>
+                        <td class="text-center font-bold">
+                          <span style="background: #fee2e2; color: #991b1b; padding: 3px 9px; border-radius: 9999px; font-weight: 800; font-size: 0.85rem;">
+                            -{{ ret.quantity }}
+                          </span>
+                        </td>
+                        <td class="text-right">
+                          \${{ ret.unitPrice | number:'1.2-2' }}
+                        </td>
+                        <td class="text-right">
+                          <strong style="color: #dc2626; font-size: 0.95rem;">\${{ ret.totalWithTax | number:'1.2-2' }}</strong>
+                          <div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">
+                            Bs. {{ (ret.totalWithTax * appBcvRate()) | number:'1.2-2' }}
+                          </div>
+                        </td>
+                        <td>
+                          <span class="status-badge status-{{ ret.previousItemStatus.toLowerCase() }}">
+                            {{ ret.previousItemStatus }}
+                          </span>
+                        </td>
+                        <td>
+                          <div style="display: flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: 600; color: #047857;">
+                            <i class="bi bi-shield-lock-fill" aria-hidden="true"></i>
+                            PIN Admin
+                          </div>
+                          <div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">
+                            Por: {{ ret.returnedByUserName || 'Cajero' }}
+                          </div>
+                        </td>
+                        <td style="max-width: 220px;">
+                          <span style="font-size: 0.82rem; color: #475569; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" [title]="ret.reason || 'Sin motivo registrado'">
+                            {{ ret.reason || 'Sin motivo registrado' }}
+                          </span>
+                        </td>
+                        <td class="text-center">
+                          <button
+                            type="button"
+                            class="btn-table-action"
+                            (click)="openOrderFromReturn(ret.orderId)"
+                            title="Ver comanda en auditoría"
+                          >
+                            <i class="bi bi-eye-fill" aria-hidden="true"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Paginación de Devoluciones -->
+              <div class="audit-pagination">
+                <span class="pagination-info">
+                  Mostrando {{ (returnCurrentPage() - 1) * returnPageSize() + 1 }} -
+                  {{ getReturnPaginationEnd() }} de {{ filteredReturns().length }} devoluciones
+                </span>
+                <div class="pagination-controls">
+                  <button
+                    type="button"
+                    class="btn-page-arrow"
+                    [disabled]="returnCurrentPage() <= 1"
+                    (click)="prevReturnPage()"
+                  >
+                    <i class="bi bi-chevron-left" aria-hidden="true"></i>
+                  </button>
+                  <span class="page-indicator">{{ returnCurrentPage() }} / {{ returnTotalPages() }}</span>
+                  <button
+                    type="button"
+                    class="btn-page-arrow"
+                    [disabled]="returnCurrentPage() >= returnTotalPages()"
+                    (click)="nextReturnPage()"
+                  >
+                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="empty-audit-state">
+                <i class="bi bi-arrow-return-left" aria-hidden="true"></i>
+                <h3>No se encontraron devoluciones</h3>
+                <p>No hay devoluciones registradas que coincidan con la búsqueda o el período seleccionado.</p>
+                <button type="button" class="btn-reset-filters" (click)="resetReturnFilters()">
+                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restablecer filtros
+                </button>
+              </div>
+            }
+          </article>
+          }
         </div>
       }
 
@@ -733,6 +1062,73 @@ const PAPA_AND_SON_IVA_RATE = 0.16;
 
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+
+    /* SECTIONS NAVIGATION TABS */
+    .audit-section-tabs {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .audit-section-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.75rem 1.35rem;
+      border-radius: 0.95rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #475569;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+
+    .audit-section-tab-btn:hover {
+      background: #f8fafc;
+      color: #0f172a;
+      border-color: #94a3b8;
+      transform: translateY(-1px);
+    }
+
+    .audit-section-tab-btn.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+    }
+
+    .section-tab-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.5rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      background: #f1f5f9;
+      color: #334155;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .audit-section-tab-btn.active .section-tab-badge {
+      background: rgba(255, 255, 255, 0.22);
+      color: #ffffff;
+    }
+
+    .section-tab-badge.badge-returns {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .audit-section-tab-btn.active .section-tab-badge.badge-returns {
+      background: #ef4444;
+      color: #ffffff;
     }
 
     .audit-main-panel {
@@ -1584,6 +1980,217 @@ export class AuditPageComponent {
   readonly auditPageSize = signal<number>(10);
   readonly selectedAuditOrder = signal<Order | null>(null);
   readonly isAuditDetailModalOpen = signal<boolean>(false);
+
+  // SECCIÓN ACTIVA (COMANDAS vs DEVOLUCIONES)
+  readonly auditSection = signal<'COMANDAS' | 'DEVOLUCIONES'>('COMANDAS');
+
+  setAuditSection(section: 'COMANDAS' | 'DEVOLUCIONES'): void {
+    this.auditSection.set(section);
+  }
+
+  // DEVOLUCIONES STATE & FILTROS
+  readonly returnSearchQuery = signal<string>('');
+  readonly returnDatePreset = signal<'ALL' | 'HOY' | 'AYER' | 'SEMANA' | 'MES' | 'CUSTOM'>('ALL');
+  readonly returnDateFrom = signal<string>('');
+  readonly returnDateTo = signal<string>('');
+  readonly returnRestaurantFilter = signal<string>('ALL');
+  readonly returnStatusFilter = signal<string>('ALL');
+  readonly returnSortColumn = signal<'returnedAt' | 'orderId' | 'productName' | 'quantity' | 'totalWithTax'>('returnedAt');
+  readonly returnSortDirection = signal<'asc' | 'desc'>('desc');
+  readonly returnCurrentPage = signal<number>(1);
+  readonly returnPageSize = signal<number>(15);
+
+  readonly allReturns = computed<OrderItemReturn[]>(() => {
+    const raw = this.state.orderReturns();
+    const allowed = this.localKeys();
+    if (this.canSelectAllRestaurants()) {
+      return raw;
+    }
+    return raw.filter((r) => allowed.includes(r.restaurantId));
+  });
+
+  readonly dateFilteredReturns = computed<OrderItemReturn[]>(() => {
+    const returns = this.allReturns();
+    const fromDate = this.returnDateFrom();
+    const toDate = this.returnDateTo();
+    if (!fromDate && !toDate) {
+      return returns;
+    }
+    const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+    const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Infinity;
+
+    return returns.filter((r) => {
+      const time = new Date(r.returnedAt).getTime();
+      return time >= fromMs && time <= toMs;
+    });
+  });
+
+  readonly returnCounts = computed(() => {
+    const returns = this.dateFilteredReturns();
+    const totalReturns = returns.length;
+    let totalItems = 0;
+    let totalMontoUsd = 0;
+    let returnsToday = 0;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    for (const r of returns) {
+      totalItems += r.quantity;
+      totalMontoUsd += r.totalWithTax;
+      if (r.returnedAt && r.returnedAt.startsWith(todayStr)) {
+        returnsToday++;
+      }
+    }
+
+    const bcv = this.state.appSettings().bcvRate || 1;
+    const totalMontoBs = totalMontoUsd * bcv;
+
+    return { totalReturns, totalItems, totalMontoUsd, totalMontoBs, returnsToday };
+  });
+
+  readonly filteredReturns = computed<OrderItemReturn[]>(() => {
+    const returns = this.dateFilteredReturns();
+    const query = this.returnSearchQuery().trim().toLowerCase();
+    const restaurant = this.returnRestaurantFilter();
+    const status = this.returnStatusFilter();
+
+    return returns.filter((r) => {
+      if (restaurant !== 'ALL' && r.restaurantId !== restaurant) {
+        return false;
+      }
+      if (status !== 'ALL' && r.previousItemStatus !== status) {
+        return false;
+      }
+      if (query) {
+        const orderMatch = r.orderId.toLowerCase().includes(query);
+        const prodMatch = r.productName.toLowerCase().includes(query);
+        const tableMatch = (r.tableLabel || `Mesa ${r.tableNumber}`).toLowerCase().includes(query);
+        const reasonMatch = (r.reason || '').toLowerCase().includes(query);
+        const userMatch = (r.returnedByUserName || '').toLowerCase().includes(query);
+        if (!orderMatch && !prodMatch && !tableMatch && !reasonMatch && !userMatch) {
+          return false;
+        }
+      }
+      return true;
+    });
+  });
+
+  readonly sortedReturns = computed<OrderItemReturn[]>(() => {
+    const list = [...this.filteredReturns()];
+    const col = this.returnSortColumn();
+    const dir = this.returnSortDirection() === 'asc' ? 1 : -1;
+
+    return list.sort((a, b) => {
+      if (col === 'totalWithTax') {
+        return (a.totalWithTax - b.totalWithTax) * dir;
+      }
+      if (col === 'quantity') {
+        return (a.quantity - b.quantity) * dir;
+      }
+      if (col === 'productName') {
+        return a.productName.localeCompare(b.productName) * dir;
+      }
+      if (col === 'orderId') {
+        return a.orderId.localeCompare(b.orderId) * dir;
+      }
+      return (new Date(a.returnedAt).getTime() - new Date(b.returnedAt).getTime()) * dir;
+    });
+  });
+
+  readonly paginatedReturns = computed<OrderItemReturn[]>(() => {
+    const start = (this.returnCurrentPage() - 1) * this.returnPageSize();
+    return this.sortedReturns().slice(start, start + this.returnPageSize());
+  });
+
+  readonly returnTotalPages = computed<number>(() => {
+    return Math.max(1, Math.ceil(this.filteredReturns().length / this.returnPageSize()));
+  });
+
+  setReturnDatePreset(preset: 'ALL' | 'HOY' | 'AYER' | 'SEMANA' | 'MES'): void {
+    this.returnDatePreset.set(preset);
+    this.returnCurrentPage.set(1);
+    const now = new Date();
+    const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+
+    if (preset === 'ALL') {
+      this.returnDateFrom.set('');
+      this.returnDateTo.set('');
+    } else if (preset === 'HOY') {
+      const today = formatDate(now);
+      this.returnDateFrom.set(today);
+      this.returnDateTo.set(today);
+    } else if (preset === 'AYER') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yesterday = formatDate(y);
+      this.returnDateFrom.set(yesterday);
+      this.returnDateTo.set(yesterday);
+    } else if (preset === 'SEMANA') {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      this.returnDateFrom.set(formatDate(start));
+      this.returnDateTo.set(formatDate(now));
+    } else if (preset === 'MES') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      this.returnDateFrom.set(formatDate(start));
+      this.returnDateTo.set(formatDate(now));
+    }
+  }
+
+  onReturnDateFromChange(event: Event): void {
+    const val = (event.target as HTMLInputElement).value;
+    this.returnDateFrom.set(val);
+    this.returnDatePreset.set('CUSTOM');
+    this.returnCurrentPage.set(1);
+  }
+
+  onReturnDateToChange(event: Event): void {
+    const val = (event.target as HTMLInputElement).value;
+    this.returnDateTo.set(val);
+    this.returnDatePreset.set('CUSTOM');
+    this.returnCurrentPage.set(1);
+  }
+
+  resetReturnFilters(): void {
+    this.returnSearchQuery.set('');
+    this.returnRestaurantFilter.set('ALL');
+    this.returnStatusFilter.set('ALL');
+    this.returnDatePreset.set('ALL');
+    this.returnDateFrom.set('');
+    this.returnDateTo.set('');
+    this.returnCurrentPage.set(1);
+  }
+
+  sortReturnsBy(col: 'returnedAt' | 'orderId' | 'productName' | 'quantity' | 'totalWithTax'): void {
+    if (this.returnSortColumn() === col) {
+      this.returnSortDirection.update((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      this.returnSortColumn.set(col);
+      this.returnSortDirection.set('desc');
+    }
+    this.returnCurrentPage.set(1);
+  }
+
+  prevReturnPage(): void {
+    this.returnCurrentPage.update((p) => Math.max(1, p - 1));
+  }
+
+  nextReturnPage(): void {
+    this.returnCurrentPage.update((p) => Math.min(this.returnTotalPages(), p + 1));
+  }
+
+  getReturnPaginationEnd(): number {
+    return Math.min(this.returnCurrentPage() * this.returnPageSize(), this.filteredReturns().length);
+  }
+
+  openOrderFromReturn(orderId: string): void {
+    const order = this.state.orders().find((o) => o.id === orderId);
+    if (order) {
+      this.openAuditDetailModal(order);
+    } else {
+      window.alert(`La comanda #${orderId} no está disponible en la memoria del dispositivo.`);
+    }
+  }
 
   readonly allAuditOrders = computed<Order[]>(() => {
     const rawOrders = this.state.orders();

@@ -135,6 +135,8 @@ export interface Order {
   paymentRejectedByUserId?: string;
   cancelledAt?: string;
   cancelledByUserId?: string;
+  opsDismissedAt?: string;
+  opsDismissedAreas?: AreaId[];
   updatedAt?: string;
   items: OrderItem[];
 }
@@ -146,4 +148,28 @@ export interface SalesReport {
   totalItems: number;
   byRestaurant: Record<RestaurantId, number>;
   byProduct: Array<{ name: string; quantity: number; sales: number }>;
+}
+
+export interface OrderItemReturn {
+  id: string;
+  orderId: string;
+  tableNumber: number;
+  tableLabel?: string;
+  itemId: string;
+  productId: string;
+  productName: string;
+  restaurantId: RestaurantId;
+  area: AreaId;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  totalWithTax: number;
+  reason?: string;
+  returnedByUserId: string;
+  returnedByUserName: string;
+  authorizedByPin: boolean;
+  previousItemStatus: OrderStatus;
+  orderStatusAtReturn: OrderStatus;
+  returnedAt: string;
+  createdAt: string;
 }

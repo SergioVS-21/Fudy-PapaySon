@@ -25,7 +25,8 @@ export const FIREBASE_COLLECTIONS = {
   printJobs: 'printJobs',
   inventoryMovements: 'inventoryMovements',
   dailyClosures: 'dailyClosures',
-  productCategories: 'productCategories'
+  productCategories: 'productCategories',
+  orderReturns: 'orderReturns'
 } as const;
 
 export interface AppSettingsDoc {
@@ -133,6 +134,8 @@ export interface OrderDoc {
   tableClosedAt?: FirestoreTimestamp;
   cancelledAt?: FirestoreTimestamp;
   cancelledByUserId?: string;
+  opsDismissedAt?: FirestoreTimestamp;
+  opsDismissedAreas?: AreaId[];
   updatedAt: FirestoreTimestamp;
 }
 
@@ -206,5 +209,29 @@ export interface DailyClosureDoc {
   totalOrders: number;
   totalItems: number;
   createdByUserId?: string;
+  createdAt: FirestoreTimestamp;
+}
+
+export interface OrderItemReturnDoc {
+  id: string;
+  orderId: string;
+  tableNumber: number;
+  tableLabel?: string;
+  itemId: string;
+  productId: string;
+  productName: string;
+  restaurantId: RestaurantId;
+  area: AreaId;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  totalWithTax: number;
+  reason?: string;
+  returnedByUserId: string;
+  returnedByUserName: string;
+  authorizedByPin: boolean;
+  previousItemStatus: OrderStatus;
+  orderStatusAtReturn: OrderStatus;
+  returnedAt: FirestoreTimestamp;
   createdAt: FirestoreTimestamp;
 }

@@ -1,5 +1,5 @@
 import { CommonModule, CurrencyPipe, DatePipe } from '@angular/common';
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppStateService } from '../core/app-state.service';
 import { Order, OrderItem, OrderSource, PaymentMethod, Product, RestaurantId } from '../core/models';
@@ -1227,18 +1227,38 @@ interface DeliveredTableGroup {
 
           
 
-            <p  class="summary" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-              <strong>
-                Mesa {{ tableLabel(selectedOrder()!) }} | Cliente: {{ selectedOrder()!.clientName }} |
-                Cedula {{ selectedOrder()!.clientDocumentId || 'No registrada' }} |
-                {{ selectedOrder()!.createdAt | date:'short' }}
-              </strong>
-              @if (isPapaAndSonSelected() || selectedOrder()!.items[0]?.restaurantId === 'PAPA_Y_SON') {
-                <button type="button" class="btn-ghost" (click)="openEditClientModal()" style="padding: 0.3rem 0.6rem; min-height: auto;">
-                  <span class="btn-content"><i class="bi bi-pencil" aria-hidden="true"></i></span>
-                </button>
-              }
-            </p>
+            <div class="summary" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.65rem; padding: 0.85rem 1.1rem; margin-bottom: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                <strong style="font-size: 1.15rem; color: #0f172a; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="bi bi-geo-alt-fill" style="color: #2563eb;"></i> Mesa {{ tableLabel(selectedOrder()!) }}
+                </strong>
+                @if (isPapaAndSonSelected() || selectedOrder()!.items[0]?.restaurantId === 'PAPA_Y_SON') {
+                  <button type="button" class="btn-ghost" (click)="openEditClientModal()" style="padding: 0.3rem 0.6rem; min-height: auto;" title="Editar datos del cliente">
+                    <span class="btn-content"><i class="bi bi-pencil" aria-hidden="true"></i></span>
+                  </button>
+                }
+              </div>
+
+              <!-- Membrete con fecha, hora y mesonero debajo de la identificación de la mesa -->
+              <div class="order-detail-meta" style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; font-size: 0.84rem; color: #475569;">
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="bi bi-calendar3" style="color: #2563eb;"></i>
+                  <strong>Fecha:</strong> {{ selectedOrder()!.createdAt | date:'dd/MM/yyyy' }}
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="bi bi-clock-history" style="color: #2563eb;"></i>
+                  <strong>Hora:</strong> {{ selectedOrder()!.createdAt | date:'hh:mm a' }}
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                  <i class="bi bi-person-badge-fill" style="color: #2563eb;"></i>
+                  <strong>Mesonero:</strong> {{ getCreatorLabel(selectedOrder()!) }}
+                </span>
+              </div>
+
+              <div style="margin-top: 0.45rem; font-size: 0.82rem; color: #64748b;">
+                Cliente: <strong style="color: #1e293b;">{{ selectedOrder()!.clientName }}</strong> · Cédula: <strong style="color: #1e293b;">{{ selectedOrder()!.clientDocumentId || 'No registrada' }}</strong>
+              </div>
+            </div>
 
               <div class="detail-head" >
               <strong>{{ selectedOrder()!.id }}</strong>
@@ -1290,15 +1310,16 @@ interface DeliveredTableGroup {
                     <span style="font-size: 0.75rem; color: #64748b;">Subt: {{ item.quantity * item.unitPrice | currency:'USD' }}</span>
                     <strong style="color: #059669; font-size: 0.85rem;">Total: {{ (item.quantity * item.unitPrice * 1.16) | currency:'USD' }}</strong>
                   </div>
-                  @if (canDeleteSelectedOrderItem(item)) {
+                  @if (canReturnOrderItem(selectedOrder(), item)) {
                     <button
                       type="button"
                       class="btn-ghost"
-                      style="color: #ff5e5e; padding: 0.35rem 0.5rem; font-size: 1rem; border-radius: 0.4rem; flex-shrink: 0; min-height: unset; line-height: 1;"
-                      title="Eliminar este producto de la comanda"
-                      (click)="deleteSelectedOrderItem(item)"
+                      style="color: #ef4444; padding: 0.35rem 0.6rem; font-size: 0.82rem; border-radius: 0.4rem; flex-shrink: 0; min-height: unset; line-height: 1; border: 1px solid #fca5a5; background: #fef2f2; display: inline-flex; align-items: center; gap: 4px;"
+                      title="Devolver / Quitar este producto de la comanda"
+                      (click)="openReturnModal(selectedOrder()!, item)"
                     >
-                      <i class="bi bi-trash" aria-hidden="true"></i>
+                      <i class="bi bi-arrow-return-left" aria-hidden="true"></i>
+                      <span>Devolver</span>
                     </button>
                   }
                 </li>
@@ -1490,6 +1511,46 @@ interface DeliveredTableGroup {
               </div>
             </div>
 
+            <!-- Desglose de productos y devoluciones antes de cobrar -->
+            <details style="margin: 0.75rem 0; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #ffffff; overflow: hidden;" open>
+              <summary style="padding: 0.5rem 0.75rem; background: #f1f5f9; font-size: 0.82rem; font-weight: 700; color: #334155; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+                <span style="display: flex; align-items: center; gap: 6px;">
+                  <i class="bi bi-box-seam" aria-hidden="true"></i>
+                  Productos en la cuenta (puedes devolver o quitar)
+                </span>
+                <span style="font-size: 0.75rem; color: #64748b;"><i class="bi bi-chevron-down"></i></span>
+              </summary>
+              <ul style="list-style: none; padding: 0; margin: 0; max-height: 160px; overflow-y: auto;">
+                @for (pOrder of paymentTargetOrders(); track pOrder.id) {
+                  @for (pItem of pOrder.items; track pItem.id) {
+                    <li style="display: flex; justify-content: space-between; align-items: center; padding: 0.45rem 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.82rem; gap: 8px;">
+                      <div style="flex: 1; min-width: 0;">
+                        <strong style="color: #1e293b; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                          {{ pItem.quantity }}x {{ pItem.productName }}
+                        </strong>
+                        <small style="color: #64748b;">#{{ pOrder.id }} &bull; {{ pItem.area }} &bull; \${{ pItem.unitPrice | number:'1.2-2' }} c/u</small>
+                      </div>
+                      <div style="text-align: right; flex-shrink: 0; display: flex; align-items: center; gap: 8px;">
+                        <strong style="color: #059669;">\${{ (pItem.quantity * pItem.unitPrice * 1.16) | number:'1.2-2' }}</strong>
+                        @if (canReturnOrderItem(pOrder, pItem)) {
+                          <button
+                            type="button"
+                            class="btn-ghost"
+                            style="color: #ef4444; padding: 0.25rem 0.45rem; font-size: 0.75rem; border-radius: 0.35rem; border: 1px solid #fca5a5; background: #fef2f2; display: inline-flex; align-items: center; gap: 2px;"
+                            title="Quitar / Devolver este producto de la cuenta"
+                            (click)="openReturnModal(pOrder, pItem)"
+                          >
+                            <i class="bi bi-arrow-return-left"></i>
+                            <span>Quitar</span>
+                          </button>
+                        }
+                      </div>
+                    </li>
+                  }
+                }
+              </ul>
+            </details>
+
             @if (paymentShouldShowQr() && paymentMethod() === 'PAGO_MOVIL') {
               <article class="next-qr-box" style="margin-bottom: 0.75rem; text-align: center;">
                 <h4 style="margin: 0 0 0.25rem 0; font-size: 0.9rem;">Pago móvil Papa y Son</h4>
@@ -1542,6 +1603,111 @@ interface DeliveredTableGroup {
                   {{ paymentRequiresVerification() && paymentMethod() === 'PAGO_MOVIL' ? 'Enviar a verificar' : 'Confirmar pago' }}
                 </span>
               </button>
+            </div>
+          </article>
+        </div>
+      }
+
+      <!-- MODAL DE DEVOLUCIÓN DE PRODUCTO -->
+      @if (isReturnModalOpen() && returnTargetOrder() && returnTargetItem()) {
+        <div class="overlay overlay-front" style="z-index: 1200;" (click)="closeReturnModal()">
+          <article class="modal detail-modal confirm-modal" style="max-width: 440px;" (click)="$event.stopPropagation()">
+            <div class="modal-head" style="border-bottom: 1px solid #fee2e2; background: #fff5f5;">
+              <h2 style="color: #991b1b; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.15rem;">
+                <i class="bi bi-arrow-return-left" aria-hidden="true"></i>
+                Devolución de Producto
+              </h2>
+              <button type="button" class="btn-ghost" (click)="closeReturnModal()">
+                <span class="btn-content"><i class="bi bi-x-lg btn-icon" aria-hidden="true"></i></span>
+              </button>
+            </div>
+
+            <div style="padding: 1rem 0;">
+              <!-- Resumen del producto a devolver -->
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem;">
+                <div style="font-weight: 700; font-size: 1rem; color: #1e293b; margin-bottom: 0.25rem;">
+                  {{ returnTargetItem()!.productName }}
+                </div>
+                <div style="font-size: 0.82rem; color: #64748b;">
+                  Comanda: <strong>#{{ returnTargetOrder()!.id }}</strong> &bull; Mesa: <strong>{{ tableLabel(returnTargetOrder()!) }}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #475569; margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed #cbd5e1;">
+                  <span>Precio unitario:</span>
+                  <strong>\${{ returnTargetItem()!.unitPrice | number:'1.2-2' }}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 700; color: #ef4444; margin-top: 0.25rem;">
+                  <span>Monto a descontar (con IVA):</span>
+                  <span>\${{ (returnQuantity() * returnTargetItem()!.unitPrice * 1.16) | number:'1.2-2' }}</span>
+                </div>
+              </div>
+
+              <!-- Selector de Cantidad si quantity > 1 -->
+              @if (returnTargetItem()!.quantity > 1) {
+                <label style="display: block; margin-bottom: 0.85rem; font-size: 0.88rem; font-weight: 600; color: #334155;">
+                  Cantidad a devolver (máx: {{ returnTargetItem()!.quantity }})
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 0.35rem;">
+                    <input
+                      type="number"
+                      [min]="1"
+                      [max]="returnTargetItem()!.quantity"
+                      [ngModel]="returnQuantity()"
+                      (ngModelChange)="returnQuantity.set(clampReturnQty($event))"
+                      style="width: 80px; padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; font-size: 1rem; font-weight: bold; text-align: center;"
+                    />
+                    <small style="color: #64748b;">de {{ returnTargetItem()!.quantity }} unidades en la comanda</small>
+                  </div>
+                </label>
+              }
+
+              <!-- Clave de Administrador requerida -->
+              <label style="display: block; margin-bottom: 0.85rem; font-size: 0.88rem; font-weight: 600; color: #334155;">
+                Clave de Administrador <span style="color: #ef4444;">*</span>
+                <input
+                  type="password"
+                  [ngModel]="returnAdminPin()"
+                  (ngModelChange)="returnAdminPin.set($event)"
+                  placeholder="Ingresa la clave de autorización"
+                  autocomplete="new-password"
+                  style="width: 100%; padding: 0.6rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; font-size: 1rem; margin-top: 0.35rem;"
+                  (keyup.enter)="confirmReturn()"
+                />
+              </label>
+
+              <!-- Motivo opcional -->
+              <label style="display: block; margin-bottom: 0.85rem; font-size: 0.88rem; font-weight: 600; color: #334155;">
+                Motivo de la devolución
+                <input
+                  type="text"
+                  [ngModel]="returnReason()"
+                  (ngModelChange)="returnReason.set($event)"
+                  placeholder="Ej: Cliente canceló plato, error al pedir, etc."
+                  style="width: 100%; padding: 0.55rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; font-size: 0.9rem; margin-top: 0.35rem;"
+                />
+              </label>
+
+              @if (returnErrorMessage()) {
+                <div style="background: #fef2f2; color: #991b1b; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.85rem; margin-bottom: 0.75rem; border: 1px solid #fca5a5; display: flex; align-items: center; gap: 6px;">
+                  <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                  <span>{{ returnErrorMessage() }}</span>
+                </div>
+              }
+
+              <div class="detail-actions" style="margin-top: 1rem; display: flex; gap: 8px; justify-content: flex-end;">
+                <button type="button" class="btn-ghost" (click)="closeReturnModal()" [disabled]="returnIsProcessing()">
+                  <span class="btn-content">Cancelar</span>
+                </button>
+                <button
+                  type="button"
+                  style="background: #ef4444; border-color: #dc2626; color: #ffffff;"
+                  (click)="confirmReturn()"
+                  [disabled]="returnIsProcessing()"
+                >
+                  <span class="btn-content">
+                    <i class="bi bi-check2-circle btn-icon"></i>
+                    {{ returnIsProcessing() ? 'Procesando...' : 'Confirmar Devolución' }}
+                  </span>
+                </button>
+              </div>
             </div>
           </article>
         </div>
@@ -3859,7 +4025,7 @@ export class OrdersPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readyOrderIds = new Set<string>();
   private readyTrackerPrimed = false;
-  private readonly pollIntervalMs = 3000;
+  private readonly pollIntervalMs = 20000;
   private pendingReadySound = false;
   private readonly unlockSoundHandler = () => {
     if (!this.pendingReadySound) {
@@ -4105,7 +4271,8 @@ export class OrdersPageComponent {
 
       if (order.status !== 'ENTREGADO' && order.status !== 'COBRADO') return false;
 
-      if (!showClosed && order.tableClosedAt) {
+      const isSettled = order.tableClosedAt || (order.status === 'COBRADO' && !!order.closedAt);
+      if (!showClosed && isSettled) {
         return false;
       }
 
@@ -4116,9 +4283,10 @@ export class OrdersPageComponent {
 
     deliveredOrders.forEach((order) => {
       let key: string;
+      const closedTimestamp = order.tableClosedAt || (order.status === 'COBRADO' ? order.closedAt : undefined);
       if (order.tableNumber > 0) {
-        key = order.tableClosedAt
-          ? `table-${order.tableNumber}-closed-${order.tableClosedAt}`
+        key = closedTimestamp
+          ? `table-${order.tableNumber}-closed-${closedTimestamp}`
           : `table-${order.tableNumber}`;
       } else {
         key = `order-${order.id}`;
@@ -4181,7 +4349,7 @@ export class OrdersPageComponent {
 
       const payableOrders = orders.filter((o) => o.status === 'ENTREGADO');
       const allCobrado = orders.length > 0 && orders.every((o) => o.status === 'COBRADO');
-      const isClosed = orders.length > 0 && orders.every((o) => !!o.tableClosedAt);
+      const isClosed = orders.length > 0 && orders.every((o) => !!o.tableClosedAt || (o.status === 'COBRADO' && !!o.closedAt));
       const hasPendingCobro = payableOrders.length > 0;
       const status: Order['status'] = allCobrado ? 'COBRADO' : 'ENTREGADO';
       const statusLabel = isClosed
@@ -4432,6 +4600,12 @@ export class OrdersPageComponent {
     window.addEventListener('pointerdown', this.unlockSoundHandler);
 
     void this.refreshAndCheckReady(true);
+
+    effect(() => {
+      // Reacciona en tiempo real a las actualizaciones de órdenes por onSnapshot
+      this.state.orders();
+      this.checkReadyOrders(true);
+    });
 
     const timerId = setInterval(() => {
       void this.refreshAndCheckReady(true);
@@ -4725,47 +4899,115 @@ export class OrdersPageComponent {
     }
   }
 
-  canDeleteSelectedOrderItem(item: OrderItem): boolean {
-    const order = this.selectedOrder();
-    if (!order || !this.isAdmin()) {
+  readonly isReturnModalOpen = signal<boolean>(false);
+  readonly returnTargetOrder = signal<Order | null>(null);
+  readonly returnTargetItem = signal<OrderItem | null>(null);
+  readonly returnQuantity = signal<number>(1);
+  readonly returnAdminPin = signal<string>('');
+  readonly returnReason = signal<string>('');
+  readonly returnErrorMessage = signal<string>('');
+  readonly returnIsProcessing = signal<boolean>(false);
+
+  canReturnOrderItem(order: Order | null | undefined, item: OrderItem | null | undefined): boolean {
+    if (!order || !item) {
       return false;
     }
-    if (order.status !== 'PENDIENTE' && order.status !== 'EN_PROCESO') {
+    if (order.status === 'COBRADO' || order.status === 'ANULADO') {
       return false;
     }
-    return item.status !== 'ENTREGADO' && item.status !== 'COBRADO';
+    return item.status !== 'ANULADO';
   }
 
-  deleteSelectedOrderItem(item: OrderItem): void {
+  canDeleteSelectedOrderItem(item: OrderItem): boolean {
     const order = this.selectedOrder();
-    if (!order || !this.canDeleteSelectedOrderItem(item)) {
-      return;
-    }
+    return this.canReturnOrderItem(order, item);
+  }
 
-    const pin = window.prompt('Para eliminar el ítem "' + item.productName + '", ingrese la clave de autorización de Administrador:');
-    if (pin === null) {
+  openReturnModal(order: Order, item: OrderItem): void {
+    this.returnTargetOrder.set(order);
+    this.returnTargetItem.set(item);
+    this.returnQuantity.set(item.quantity || 1);
+    this.returnAdminPin.set('');
+    this.returnReason.set('');
+    this.returnErrorMessage.set('');
+    this.returnIsProcessing.set(false);
+    this.isReturnModalOpen.set(true);
+  }
+
+  closeReturnModal(): void {
+    this.isReturnModalOpen.set(false);
+    this.returnTargetOrder.set(null);
+    this.returnTargetItem.set(null);
+    this.returnAdminPin.set('');
+    this.returnReason.set('');
+    this.returnErrorMessage.set('');
+    this.returnIsProcessing.set(false);
+  }
+
+  clampReturnQty(val: any): number {
+    const max = this.returnTargetItem()?.quantity || 1;
+    const parsed = Number(val);
+    if (!Number.isFinite(parsed) || parsed < 1) return 1;
+    return Math.min(Math.floor(parsed), max);
+  }
+
+  async confirmReturn(): Promise<void> {
+    const order = this.returnTargetOrder();
+    const item = this.returnTargetItem();
+    if (!order || !item) return;
+
+    const pin = this.returnAdminPin().trim();
+    if (!pin) {
+      this.returnErrorMessage.set('Debe ingresar la clave de Administrador.');
       return;
     }
 
     if (!this.state.validateAdminSecurityPin(pin)) {
-      window.alert('Clave de autorización incorrecta. Operación cancelada.');
+      this.returnErrorMessage.set('Clave de Administrador incorrecta.');
       return;
     }
 
-    const isOnlyItem = order.items.length <= 1;
-    const message = isOnlyItem
-      ? '"' + item.productName + '" es el único producto de la comanda ' + order.id + '. Al eliminarlo se anulará la comanda completa. ¿Deseas continuar?'
-      : '¿Eliminar "' + item.productName + '" de la comanda ' + order.id + '? Se devolverá el stock al inventario.';
+    const qty = this.clampReturnQty(this.returnQuantity());
+    this.returnIsProcessing.set(true);
+    this.returnErrorMessage.set('');
 
-    const confirmed = window.confirm(message);
-    if (!confirmed) {
-      return;
-    }
+    try {
+      const success = await this.state.returnOrderItem({
+        orderId: order.id,
+        itemId: item.id,
+        quantity: qty,
+        reason: this.returnReason().trim() || undefined,
+        pin: pin
+      });
 
-    const deleted = this.state.deleteOrderItemInKitchen(order.id, item.id);
-    if (deleted && isOnlyItem) {
-      this.closeDetailModal();
+      if (success) {
+        this.closeReturnModal();
+        const updatedOrder = this.state.orders().find(o => o.id === order.id);
+        if (!updatedOrder || updatedOrder.status === 'ANULADO') {
+          this.closeDetailModal();
+        }
+        if (this.paymentTargetOrders().length > 0) {
+          const currentTargetIds = new Set(this.paymentTargetOrders().map(o => o.id));
+          const refreshedTargets = this.state.orders().filter(o => currentTargetIds.has(o.id) && o.status !== 'ANULADO' && o.status !== 'COBRADO');
+          this.paymentTargetOrders.set(refreshedTargets);
+          if (refreshedTargets.length === 0) {
+            this.closeReceivePaymentModal();
+          }
+        }
+      } else {
+        this.returnErrorMessage.set('No se pudo procesar la devolución. Intente nuevamente.');
+      }
+    } catch (err: any) {
+      this.returnErrorMessage.set(err?.message || 'Error al procesar la devolución.');
+    } finally {
+      this.returnIsProcessing.set(false);
     }
+  }
+
+  deleteSelectedOrderItem(item: OrderItem): void {
+    const order = this.selectedOrder();
+    if (!order) return;
+    this.openReturnModal(order, item);
   }
 
   toggleBillSummary(): void {

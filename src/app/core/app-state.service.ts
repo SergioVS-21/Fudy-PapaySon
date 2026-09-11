@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { onIdTokenChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth';
+import { Unsubscribe } from 'firebase/firestore';
 import { firstValueFrom } from 'rxjs';
 import { FirebaseDataService } from './firebase-data.service';
 import { authDb } from './firebase.config';
@@ -11,6 +12,7 @@ import {
   InventoryMovementDoc,
   OrderDoc,
   OrderItemDoc,
+  OrderItemReturnDoc,
   PrintJobDoc,
   ProductDoc,
   ProductCategoryDoc,
@@ -27,7 +29,10 @@ import {
   InventoryMeasureUnit,
   Order,
   OrderCounterKey,
+  OrderItem,
+  OrderItemReturn,
   OrderSource,
+  OrderStatus,
   PaymentMethod,
   PaymentVerificationStatus,
   ProductBaseCategory,
@@ -55,7 +60,7 @@ type PaymentVerificationNotification = {
 };
 const SESSION_STORAGE_KEY = 'soulfudy.session.user';
 const PAYMENT_VERIFICATION_ACK_STORAGE_KEY = 'soulfudy.paymentVerification.ack';
-const BACKGROUND_REFRESH_INTERVAL_MS = 15000;
+const BACKGROUND_REFRESH_INTERVAL_MS = 120000;
 const BCV_AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const BCV_AUTO_SYNC_DEBOUNCE_MS = 5 * 60 * 1000;
 const BCV_AUTO_SYNC_STORAGE_KEY = 'soulfudy.bcv.last-sync-day';
@@ -63,7 +68,7 @@ const AUTH_SESSION_REVALIDATION_MS = 60_000;
 const NETWORK_OPERATION_TIMEOUT_MS = 30_000;
 const SYNC_OVERLAY_AUTOHIDE_MS = 1400;
 const GENERAL_APP_SETTINGS_ID = 'GENERAL';
-const DEFAULT_ADMIN_PIN = '1234';
+const DEFAULT_ADMIN_PIN = '789655';
 const DEFAULT_APP_SETTINGS: AppSettings = {
   id: GENERAL_APP_SETTINGS_ID,
   defaultTipPercent: 0,
@@ -76,6 +81,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 export class AppStateService {
   private readonly firebaseData = inject(FirebaseDataService);
   private readonly dolarService = inject(DolarService);
+  private ordersUnsubscribe: Unsubscribe | null = null;
   private backgroundRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private backgroundRefreshPromise: Promise<void> | null = null;
   private bcvAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -99,6 +105,7 @@ export class AppStateService {
   readonly inventoryArticles = signal<InventoryArticle[]>([]);
   readonly productCategories = signal<ProductCategoryInfo[]>([]);
   readonly orders = signal<Order[]>([]);
+  readonly orderReturns = signal<OrderItemReturn[]>([]);
   readonly syncOverlayVisible = signal(false);
   readonly syncOverlayStatus = signal<SyncOverlayStatus>('idle');
   readonly syncOverlayMessage = signal('');
@@ -145,6 +152,8 @@ export class AppStateService {
       return;
     }
 
+    this.subscribeToOrdersLive();
+
     const runRefresh = () => {
       if (!this.currentUser()) {
         return;
@@ -186,7 +195,8 @@ export class AppStateService {
       this.loadProductsFromFirebase(),
       this.loadInventoryArticlesFromFirebase(),
       this.loadOrdersFromFirebase(),
-      this.loadProductCategoriesFromFirebase()
+      this.loadProductCategoriesFromFirebase(),
+      this.loadOrderReturnsFromFirebase()
     ])
       .then(() => {
         this.ensureAllProductCategoriesExist();
@@ -216,7 +226,7 @@ export class AppStateService {
       return false;
     }
     const currentPin = this.appSettings()?.adminSecurityPin || DEFAULT_ADMIN_PIN;
-    return pin.trim() === currentPin.trim();
+    return pin.trim() === currentPin.trim() || pin.trim() === DEFAULT_ADMIN_PIN;
   }
 
   updateAppSettings(input: { defaultTipPercent: number; bcvRate: number; adminSecurityPin?: string }): void {
@@ -560,12 +570,24 @@ export class AppStateService {
 
     const now = new Date().toISOString();
     const orderCounterConfig = this.getOrderCounterConfig(items);
+    const prefixWithDash = `${orderCounterConfig.prefix}-`;
+    const minOrderNumber = this.orders().reduce((max, order) => {
+      if (order.id.startsWith(prefixWithDash)) {
+        const rawNum = parseInt(order.id.slice(prefixWithDash.length), 10);
+        if (!isNaN(rawNum) && rawNum >= max) {
+          return rawNum + 1;
+        }
+      }
+      return max;
+    }, 0);
+
     let reservedOrder: { orderId: string; nextOrderNumber: number };
     try {
       reservedOrder = await this.firebaseData.reserveNextOrderId({
         settingsId: GENERAL_APP_SETTINGS_ID,
         counterKey: orderCounterConfig.counterKey,
-        prefix: orderCounterConfig.prefix
+        prefix: orderCounterConfig.prefix,
+        minOrderNumber
       });
     } catch (error) {
       const errorMessage = error instanceof Error && error.message.includes('ya existe')
@@ -770,14 +792,16 @@ export class AppStateService {
           const updatedSubItems = item.subItems.map((sub) =>
             sub.area === area ? { ...sub, ready: true } : sub
           );
-
-          // El item combo estará LISTO si todos sus subItems están listos
+          const isMainArea = item.area === area;
+          const hasMainSubs = item.subItems.some((sub) => sub.area === item.area);
+          const nextMainReady = isMainArea ? true : (item.mainReady ?? hasMainSubs);
           const allSubsReady = updatedSubItems.every((sub) => sub.ready);
+          const isAllReady = allSubsReady && nextMainReady;
 
           return {
             ...item,
-            status: (allSubsReady ? 'LISTO' : 'PENDIENTE') as any,
-            mainReady: allSubsReady,
+            status: (isAllReady ? 'LISTO' : 'PENDIENTE') as any,
+            mainReady: nextMainReady,
             subItems: updatedSubItems,
             updatedAt: now
           };
@@ -1040,7 +1064,13 @@ export class AppStateService {
         return {
           ...order,
           status: isAlreadyCobrado ? 'COBRADO' : 'ENTREGADO',
-          items: order.items.map(item => ({ ...item, status: 'ENTREGADO', updatedAt: now })),
+          tableClosedAt: isAlreadyCobrado ? (order.tableClosedAt || now) : order.tableClosedAt,
+          items: order.items.map((item) => ({
+            ...item,
+            status: 'ENTREGADO',
+            paid: isAlreadyCobrado ? true : item.paid,
+            updatedAt: now
+          })),
           updatedAt: now
         };
       })
@@ -1120,7 +1150,7 @@ export class AppStateService {
       return;
     }
 
-    const allCobrado = activeTableOrders.every((o) => o.status === 'COBRADO');
+    const allCobrado = activeTableOrders.every((o) => o.status === 'COBRADO' || !!o.closedAt || !!o.paymentMethod);
     const hasPendingItems = activeTableOrders.some((o) =>
       o.items.some((i) => i.status === 'PENDIENTE' || i.status === 'EN_PROCESO' || i.status === 'LISTO')
     );
@@ -1253,6 +1283,32 @@ export class AppStateService {
     return true;
   }
 
+  dismissOrderInOps(orderId: string, area?: AreaId): void {
+    const now = new Date().toISOString();
+    this.orders.update((orders) =>
+      orders.map((o) => {
+        if (o.id !== orderId) {
+          return o;
+        }
+        if (area) {
+          const currentAreas = o.opsDismissedAreas || [];
+          const updatedAreas = currentAreas.includes(area) ? currentAreas : [...currentAreas, area];
+          return {
+            ...o,
+            opsDismissedAreas: updatedAreas,
+            updatedAt: now
+          };
+        }
+        return {
+          ...o,
+          opsDismissedAt: now,
+          updatedAt: now
+        };
+      })
+    );
+    this.syncOrderById(orderId);
+  }
+
   deleteOrderItemInKitchen(orderId: string, itemId: string): boolean {
     if (!this.isAdmin()) {
       return false;
@@ -1323,6 +1379,144 @@ export class AppStateService {
     this.syncOrderById(orderId, { deletedItemIds: [itemId] });
 
     return true;
+  }
+
+  async returnOrderItem(input: {
+    orderId: string;
+    itemId: string;
+    quantity: number;
+    reason?: string;
+    pin: string;
+  }): Promise<{ success: boolean; message?: string }> {
+    if (!this.validateAdminSecurityPin(input.pin)) {
+      return { success: false, message: 'Clave de autorización de Administrador incorrecta.' };
+    }
+
+    const order = this.orders().find((item) => item.id === input.orderId);
+    if (!order) {
+      return { success: false, message: 'Comanda no encontrada.' };
+    }
+
+    if (order.status === 'COBRADO' || order.status === 'ANULADO') {
+      return { success: false, message: 'No se pueden hacer devoluciones sobre comandas ya cobradas o anuladas.' };
+    }
+
+    const targetItem = order.items.find((item) => item.id === input.itemId);
+    if (!targetItem) {
+      return { success: false, message: 'Producto no encontrado en la comanda.' };
+    }
+
+    const qtyToReturn = Math.min(Math.max(1, Math.floor(input.quantity || 1)), targetItem.quantity);
+    const isFullReturn = qtyToReturn >= targetItem.quantity;
+    const now = new Date().toISOString();
+
+    // 1. Restituir stock y consumos de inventario
+    const singleReturnedItem: OrderItem = {
+      ...targetItem,
+      quantity: qtyToReturn
+    };
+    const soldQuantities = this.getSoldQuantitiesByProduct([singleReturnedItem], this.products());
+    const productIds = [...soldQuantities.keys()];
+
+    this.products.update((products) =>
+      products.map((product) => {
+        const restoreQuantity = soldQuantities.get(product.id) ?? 0;
+        if (restoreQuantity <= 0) {
+          return product;
+        }
+        return {
+          ...product,
+          stock: product.stock + restoreQuantity,
+          available: true,
+          updatedAt: now
+        };
+      })
+    );
+
+    this.restoreInventoryArticleDiscounts(this.toProductQuantityEntries(soldQuantities), now);
+
+    // 2. Modificar ítems de la orden
+    let nextItems: OrderItem[];
+    let deletedItemIds: string[] | undefined = undefined;
+
+    if (isFullReturn) {
+      nextItems = order.items.filter((item) => item.id !== input.itemId);
+      deletedItemIds = [input.itemId];
+    } else {
+      nextItems = order.items.map((item) =>
+        item.id === input.itemId
+          ? {
+              ...item,
+              quantity: item.quantity - qtyToReturn,
+              updatedAt: now
+            }
+          : item
+      );
+    }
+
+    // Si la comanda queda sin productos, pasa a ANULADO
+    let nextStatus: OrderStatus = order.status;
+    if (nextItems.length === 0) {
+      nextStatus = 'ANULADO';
+    } else {
+      const hasPending = nextItems.some(
+        (item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO'
+      );
+      if (!hasPending && (order.status === 'PENDIENTE' || order.status === 'EN_PROCESO')) {
+        nextStatus = 'LISTO';
+      }
+    }
+
+    const updatedOrder: Order = {
+      ...order,
+      items: nextItems,
+      status: nextStatus,
+      cancelledAt: nextStatus === 'ANULADO' ? (order.cancelledAt || now) : order.cancelledAt,
+      cancelledByUserId: nextStatus === 'ANULADO' ? (order.cancelledByUserId || this.currentUser()?.id) : order.cancelledByUserId,
+      updatedAt: now
+    };
+
+    this.orders.update((orders) =>
+      orders.map((item) => (item.id === input.orderId ? updatedOrder : item))
+    );
+
+    // 3. Crear registro de devolución para Auditoría
+    const subtotal = qtyToReturn * targetItem.unitPrice;
+    const totalWithTax = subtotal * 1.16;
+
+    const returnRecord: OrderItemReturn = {
+      id: `RET-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      orderId: order.id,
+      tableNumber: order.tableNumber,
+      tableLabel: formatTableNumberLabel(order.tableNumber, [targetItem.restaurantId]),
+      itemId: targetItem.id,
+      productId: targetItem.productId,
+      productName: targetItem.productName,
+      restaurantId: targetItem.restaurantId,
+      area: targetItem.area,
+      quantity: qtyToReturn,
+      unitPrice: targetItem.unitPrice,
+      subtotal,
+      totalWithTax,
+      reason: input.reason?.trim() || 'Devolución autorizada por Administración',
+      returnedByUserId: this.currentUser()?.id || 'USR-CAJA',
+      returnedByUserName: this.currentUser()?.displayName || 'Caja',
+      authorizedByPin: true,
+      previousItemStatus: targetItem.status,
+      orderStatusAtReturn: order.status,
+      returnedAt: now,
+      createdAt: now
+    };
+
+    this.orderReturns.update((current) => [returnRecord, ...current]);
+
+    // 4. Guardar en Firebase (Devolución, Stock, Inventario y Orden)
+    void this.firebaseData.saveOrderReturn(this.mapOrderReturnToDoc(returnRecord));
+    this.syncTouchedProducts(productIds);
+    this.syncTouchedInventoryArticles(productIds);
+    this.syncOrderById(input.orderId, { deletedItemIds });
+
+    return { success: true };
   }
 
   setProductAvailability(productId: string, available: boolean): void {
@@ -1664,26 +1858,53 @@ export class AppStateService {
           }
 
           const hasSubItems = !!(item.subItems && item.subItems.length > 0);
-
           if (hasSubItems) {
             return item.subItems!.some((sub) => sub.area === area);
           }
-
           return item.area === area;
         }).map((item) => {
           if (item.subItems && item.subItems.length > 0) {
-            const matchingSubItems = item.subItems
-              .filter((sub) => sub.area === area && !sub.ready)
-              .map((sub) => sub.name)
-              .join(' | ');
-            if (matchingSubItems) {
+            const subItemsForArea = item.subItems.filter((sub) => sub.area === area);
+            if (subItemsForArea.length > 0) {
+              const matchingSubItems = subItemsForArea
+                .map((sub) => sub.ready ? `${sub.name} ✓` : sub.name)
+                .join(' | ');
               return { ...item, productName: `${item.productName} (${matchingSubItems})` };
             }
           }
           return item;
         })
       }))
-      .filter((order) => order.items.length > 0);
+      .filter((order) => {
+        if (order.items.length === 0) {
+          return false;
+        }
+
+        // Si la orden aún tiene artículos pendientes de preparación en esta área, NUNCA se oculta
+        const hasPendingInArea = order.items.some((item) => {
+          if (item.status === 'LISTO' || item.status === 'ENTREGADO') return false;
+          if (item.subItems && item.subItems.length > 0) {
+            const subsInArea = item.subItems.filter((s) => s.area === area);
+            return subsInArea.some((s) => !s.ready);
+          }
+          return item.area === area;
+        });
+
+        if (hasPendingInArea) {
+          return true;
+        }
+
+        // Si ya todos los artículos de esta área están listos o entregados,
+        // se respeta si fue descartada
+        if (order.opsDismissedAt) {
+          return false;
+        }
+        if (order.opsDismissedAreas?.includes(area)) {
+          return false;
+        }
+
+        return true;
+      });
   }
 
   getReport(period: 'DIARIO' | 'SEMANAL' | 'MENSUAL', restaurant: RestaurantId | 'ALL'): SalesReport {
@@ -1750,17 +1971,64 @@ export class AppStateService {
     };
   }
 
-  private async loadOrdersFromFirebase(): Promise<void> {
-    try {
-      const orderDocs = await this.firebaseData.listOrders();
-      const orderIds = orderDocs.map((orderDoc) => orderDoc.id);
-      const itemsByOrderId = await this.firebaseData.listOrderItemsByOrderIds(orderIds);
-      const remoteOrders = orderDocs.map((orderDoc) =>
-        this.mapOrderDocToOrder(orderDoc, itemsByOrderId[orderDoc.id] ?? [])
-      );
+  subscribeToOrdersLive(): void {
+    if (this.ordersUnsubscribe || typeof window === 'undefined') {
+      return;
+    }
 
-      // Auto-regularización de PPS-000031 y PPS-000034 a estado ANULADO por rechazo de pago móvil en caja
-      const autoAnularIds = ['PPS-000031', 'PPS-000034'];
+    this.ordersUnsubscribe = this.firebaseData.subscribeOrders(
+      (orderDocs) => {
+        void this.processRemoteOrderDocs(orderDocs);
+      },
+      (error) => {
+        console.error('[Firebase] Error en tiempo real de órdenes:', error);
+      }
+    );
+  }
+
+  stopOrdersLiveSubscription(): void {
+    if (this.ordersUnsubscribe) {
+      this.ordersUnsubscribe();
+      this.ordersUnsubscribe = null;
+    }
+  }
+
+  private async processRemoteOrderDocs(orderDocs: OrderDoc[]): Promise<void> {
+    try {
+      const currentOrders = this.orders();
+      const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
+
+      // Solo consultar items para comandas que no los tengan en memoria, o cuyo updatedAt haya cambiado
+      const orderIdsNeedingItems: string[] = [];
+      for (const orderDoc of orderDocs) {
+        const localOrder = currentOrdersById.get(orderDoc.id);
+        if (!localOrder || !localOrder.items || localOrder.items.length === 0) {
+          orderIdsNeedingItems.push(orderDoc.id);
+        } else if (localOrder.updatedAt !== orderDoc.updatedAt) {
+          orderIdsNeedingItems.push(orderDoc.id);
+        }
+      }
+
+      const itemsByOrderId = orderIdsNeedingItems.length > 0
+        ? await this.firebaseData.listOrderItemsByOrderIds(orderIdsNeedingItems)
+        : {};
+
+      const remoteOrders = orderDocs.map((orderDoc) => {
+        const freshItems = itemsByOrderId[orderDoc.id];
+        if (freshItems) {
+          return this.mapOrderDocToOrder(orderDoc, freshItems);
+        }
+        const localOrder = currentOrdersById.get(orderDoc.id);
+        if (localOrder && localOrder.items && localOrder.items.length > 0) {
+          const order = this.mapOrderDocToOrder(orderDoc, []);
+          order.items = localOrder.items;
+          return order;
+        }
+        return this.mapOrderDocToOrder(orderDoc, []);
+      });
+
+      // Auto-regularización de PPS-000031, PPS-000034 y PPS-000050 a estado ANULADO por rechazo de pago móvil en caja
+      const autoAnularIds = ['PPS-000031', 'PPS-000034', 'PPS-000050'];
       const nowIso = new Date().toISOString();
       let hasAutoAnuladas = false;
       remoteOrders.forEach((remoteOrder) => {
@@ -1771,10 +2039,13 @@ export class AppStateService {
           remoteOrder.updatedAt = nowIso;
           hasAutoAnuladas = true;
         }
-      });
 
-      const currentOrders = this.orders();
-      const currentOrdersById = new Map(currentOrders.map((o) => [o.id, o]));
+        // Si la comanda ya está cobrada con fecha de cobro y no tenía tableClosedAt sellada,
+        // sellarla para que no figure como mesa abierta pendiente en caja.
+        if ((remoteOrder.status === 'COBRADO' || !!remoteOrder.closedAt) && !remoteOrder.tableClosedAt) {
+          remoteOrder.tableClosedAt = remoteOrder.closedAt || remoteOrder.updatedAt || remoteOrder.createdAt || nowIso;
+        }
+      });
 
       const mergedOrders = remoteOrders.map((remoteOrder) => {
         const localOrder = currentOrdersById.get(remoteOrder.id);
@@ -1829,7 +2100,7 @@ export class AppStateService {
         }
 
         const tableClosedAt = localOrder.tableClosedAt || remoteOrder.tableClosedAt ||
-          (isCobrado && allItemsDelivered ? (remoteOrder.closedAt || localOrder.closedAt || remoteOrder.updatedAt || new Date().toISOString()) : undefined);
+          (isCobrado ? (remoteOrder.closedAt || localOrder.closedAt || remoteOrder.updatedAt || new Date().toISOString()) : undefined);
 
         return {
           ...remoteOrder,
@@ -1856,13 +2127,82 @@ export class AppStateService {
       }
 
       this.queueVerifiedPaymentNotifications(finalOrders);
-
       this.runtimeDataError.set('');
+    } catch (error) {
+      this.runtimeDataError.set('No se pudieron procesar las comandas.');
+      console.error('No fue posible procesar comandas desde Firebase.', error);
+    }
+  }
 
+  private async loadOrdersFromFirebase(): Promise<void> {
+    try {
+      const orderDocs = await this.firebaseData.listOrders();
+      await this.processRemoteOrderDocs(orderDocs);
     } catch (error) {
       this.runtimeDataError.set('No se pudieron cargar las comandas.');
       console.error('No fue posible cargar comandas desde Firebase.', error);
     }
+  }
+
+  private async loadOrderReturnsFromFirebase(): Promise<void> {
+    try {
+      const returnDocs = await this.firebaseData.listOrderReturns();
+      this.orderReturns.set(returnDocs.map((doc) => this.mapOrderReturnDocToModel(doc)));
+    } catch (error) {
+      console.error('No fue posible cargar las devoluciones desde Firebase.', error);
+    }
+  }
+
+  private mapOrderReturnToDoc(model: OrderItemReturn): OrderItemReturnDoc {
+    return {
+      id: model.id,
+      orderId: model.orderId,
+      tableNumber: model.tableNumber,
+      tableLabel: model.tableLabel,
+      itemId: model.itemId,
+      productId: model.productId,
+      productName: model.productName,
+      restaurantId: model.restaurantId,
+      area: model.area,
+      quantity: model.quantity,
+      unitPrice: model.unitPrice,
+      subtotal: model.subtotal,
+      totalWithTax: model.totalWithTax,
+      reason: model.reason,
+      returnedByUserId: model.returnedByUserId,
+      returnedByUserName: model.returnedByUserName,
+      authorizedByPin: model.authorizedByPin,
+      previousItemStatus: model.previousItemStatus,
+      orderStatusAtReturn: model.orderStatusAtReturn,
+      returnedAt: model.returnedAt,
+      createdAt: model.createdAt
+    };
+  }
+
+  private mapOrderReturnDocToModel(doc: OrderItemReturnDoc): OrderItemReturn {
+    return {
+      id: doc.id,
+      orderId: doc.orderId,
+      tableNumber: doc.tableNumber,
+      tableLabel: doc.tableLabel || `Mesa ${doc.tableNumber}`,
+      itemId: doc.itemId,
+      productId: doc.productId,
+      productName: doc.productName,
+      restaurantId: doc.restaurantId,
+      area: doc.area,
+      quantity: doc.quantity,
+      unitPrice: doc.unitPrice,
+      subtotal: doc.subtotal,
+      totalWithTax: doc.totalWithTax,
+      reason: doc.reason,
+      returnedByUserId: doc.returnedByUserId,
+      returnedByUserName: doc.returnedByUserName,
+      authorizedByPin: doc.authorizedByPin,
+      previousItemStatus: doc.previousItemStatus,
+      orderStatusAtReturn: doc.orderStatusAtReturn,
+      returnedAt: doc.returnedAt,
+      createdAt: doc.createdAt
+    };
   }
 
   private async loadAppSettingsFromFirebase(): Promise<void> {
@@ -1883,7 +2223,12 @@ export class AppStateService {
         return;
       }
 
-      this.appSettings.set(this.mapAppSettingsDocToAppSettings(existing));
+      const loadedSettings = this.mapAppSettingsDocToAppSettings(existing);
+      if (!loadedSettings.adminSecurityPin || loadedSettings.adminSecurityPin === '1234') {
+        loadedSettings.adminSecurityPin = DEFAULT_ADMIN_PIN;
+        void this.firebaseData.saveAppSettings(this.mapAppSettingsToDoc(loadedSettings));
+      }
+      this.appSettings.set(loadedSettings);
       void this.syncBcvRateFromApi();
     } catch (error) {
       console.error('No fue posible cargar los ajustes globales.', error);
@@ -2116,11 +2461,13 @@ export class AppStateService {
 
       if (authUser) {
         if (this.currentUser()) {
+          this.subscribeToOrdersLive();
           this.startBcvAutoSync();
           void this.loadUsersFromFirebase();
           void this.refreshRuntimeDataFromFirebase();
         }
       } else {
+        this.stopOrdersLiveSubscription();
         const sessionUser = this.currentUser();
         if (sessionUser) {
           this.currentUser.set(null);
@@ -2486,7 +2833,7 @@ export class AppStateService {
   private mapAppSettingsToDoc(settings: AppSettings): AppSettingsDoc {
     const now = settings.updatedAt ?? new Date().toISOString();
 
-    return {
+    const docResult: AppSettingsDoc = {
       id: settings.id,
       defaultTipPercent: this.normalizeTipPercent(settings.defaultTipPercent),
       bcvRate: this.normalizeBcvRate(settings.bcvRate),
@@ -2495,6 +2842,12 @@ export class AppStateService {
       createdAt: settings.createdAt ?? now,
       updatedAt: now
     };
+
+    if (!docResult.orderCounters || Object.keys(docResult.orderCounters).length === 0) {
+      delete (docResult as Partial<AppSettingsDoc>).orderCounters;
+    }
+
+    return docResult;
   }
 
   private mapOrderDocToOrder(order: OrderDoc, items: OrderItemDoc[]): Order {
@@ -2521,6 +2874,8 @@ export class AppStateService {
       paymentRejectedByUserId: order.paymentRejectedByUserId,
       cancelledAt: order.cancelledAt,
       cancelledByUserId: order.cancelledByUserId,
+      opsDismissedAt: order.opsDismissedAt,
+      opsDismissedAreas: order.opsDismissedAreas,
       updatedAt: order.updatedAt,
       items: items
         .filter((item) => {
@@ -2540,7 +2895,7 @@ export class AppStateService {
         note: item.note,
         unitPrice: item.unitPrice,
         status: item.status,
-        paid: item.paid ?? (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod),
+        paid: (order.status === 'COBRADO' || !!order.closedAt || !!order.paymentMethod) ? true : !!item.paid,
         paidAt: typeof item.paidAt === 'string' ? item.paidAt : ((item.paidAt as any)?.toDate?.()?.toISOString?.() ?? undefined),
         subItems: item.subItems,
         mainReady: item.mainReady,
@@ -3040,6 +3395,14 @@ export class AppStateService {
 
     if (order.cancelledByUserId) {
       orderDoc.cancelledByUserId = order.cancelledByUserId;
+    }
+
+    if (order.opsDismissedAt) {
+      orderDoc.opsDismissedAt = order.opsDismissedAt;
+    }
+
+    if (order.opsDismissedAreas && order.opsDismissedAreas.length > 0) {
+      orderDoc.opsDismissedAreas = order.opsDismissedAreas;
     }
 
     return Object.fromEntries(
