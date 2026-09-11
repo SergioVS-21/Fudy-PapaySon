@@ -794,14 +794,14 @@ export class AppStateService {
           );
           const isMainArea = item.area === area;
           const hasMainSubs = item.subItems.some((sub) => sub.area === item.area);
-          const nextMainReady = isMainArea ? true : (item.mainReady ?? hasMainSubs);
+          const nextMainReady = isMainArea ? true : (item.mainReady ?? !hasMainSubs);
           const allSubsReady = updatedSubItems.every((sub) => sub.ready);
-          const isAllReady = allSubsReady && nextMainReady;
+          const isAllReady = allSubsReady && (hasMainSubs ? true : nextMainReady);
 
           return {
             ...item,
             status: (isAllReady ? 'LISTO' : 'PENDIENTE') as any,
-            mainReady: nextMainReady,
+            mainReady: nextMainReady || isAllReady,
             subItems: updatedSubItems,
             updatedAt: now
           };
@@ -836,12 +836,17 @@ export class AppStateService {
           const updatedSubItems = item.subItems?.map((sub) =>
             area === 'ALL' || sub.area === area ? { ...sub, ready: true } : sub
           );
-          const allSubsReady = !updatedSubItems || updatedSubItems.every((sub) => sub.ready);
+          const hasSubs = !!(updatedSubItems && updatedSubItems.length > 0);
+          const allSubsReady = !hasSubs || updatedSubItems!.every((sub) => sub.ready);
+          const hasMainSubs = hasSubs && item.subItems!.some((sub) => sub.area === item.area);
+          const isMainArea = area === 'ALL' || item.area === area;
+          const nextMainReady = isMainArea ? true : (item.mainReady ?? !hasMainSubs);
+          const isAllReady = allSubsReady && (hasMainSubs ? true : nextMainReady);
 
           return {
             ...item,
-            status: (allSubsReady ? 'LISTO' : item.status) as any,
-            mainReady: allSubsReady,
+            status: (isAllReady ? 'LISTO' : item.status) as any,
+            mainReady: nextMainReady || isAllReady,
             subItems: updatedSubItems,
             updatedAt: now
           };
@@ -2063,11 +2068,43 @@ export class AppStateService {
           const localTime = new Date(localItem.updatedAt ?? 0).getTime();
           const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
 
-          // Si la acción local es más reciente que los datos de Firebase, preservarla
-          if (localTime > remoteTime) {
-            return localItem;
+          const baseItem = localTime > remoteTime ? localItem : remoteItem;
+
+          // Combinar subItems de combos de forma acumulativa (unión de partes listas en distintas tablets)
+          let mergedSubItems = baseItem.subItems;
+          if (localItem.subItems && localItem.subItems.length > 0 && remoteItem.subItems && remoteItem.subItems.length > 0) {
+            mergedSubItems = remoteItem.subItems.map((rSub, idx) => {
+              const lSub = localItem.subItems?.[idx] ?? localItem.subItems?.find((s) => s.name === rSub.name && s.area === rSub.area);
+              return {
+                ...rSub,
+                ready: !!(rSub.ready || lSub?.ready)
+              };
+            });
           }
-          return remoteItem;
+
+          // Avance de estado (no regresión de LISTO o ENTREGADO por desfase de reloj)
+          let mergedStatus = baseItem.status;
+          if (localItem.status === 'ENTREGADO' || remoteItem.status === 'ENTREGADO') {
+            mergedStatus = 'ENTREGADO';
+          } else if (localItem.status === 'LISTO' || remoteItem.status === 'LISTO') {
+            mergedStatus = 'LISTO';
+          }
+
+          // Si todos los subItems combinados ya están listos, el combo debe ser LISTO
+          if (mergedSubItems && mergedSubItems.length > 0 && mergedSubItems.every((s) => s.ready)) {
+            if (mergedStatus !== 'ENTREGADO') {
+              mergedStatus = 'LISTO';
+            }
+          }
+
+          const mergedMainReady = !!(localItem.mainReady || remoteItem.mainReady || mergedStatus === 'LISTO' || mergedStatus === 'ENTREGADO');
+
+          return {
+            ...baseItem,
+            status: mergedStatus,
+            mainReady: mergedMainReady,
+            subItems: mergedSubItems
+          };
         });
 
         const remoteItemIds = new Set(remoteOrder.items.map((i) => i.id));
@@ -2083,12 +2120,21 @@ export class AppStateService {
             (item) => item.status === 'ENTREGADO' || item.status === 'ANULADO'
           );
 
+        const hasPendingInMerged = allMergedItems.some(
+          (item) => item.status === 'PENDIENTE' || item.status === 'EN_PROCESO'
+        );
+
         let finalStatus = remoteOrder.status;
         if (remoteOrder.status === 'ANULADO' || localOrder.status === 'ANULADO' || autoAnularIds.includes(remoteOrder.id)) {
           finalStatus = 'ANULADO';
+        } else if (allItemsDelivered) {
+          finalStatus = 'ENTREGADO';
+        } else if (!hasPendingInMerged && allMergedItems.length > 0) {
+          finalStatus = 'LISTO';
         } else if (localOrderTime > remoteOrderTime) {
           finalStatus = localOrder.status;
         }
+
         const isCobrado =
           (finalStatus === 'COBRADO' ||
           !!remoteOrder.closedAt ||

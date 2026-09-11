@@ -378,6 +378,17 @@ interface DeliveredTableGroup {
                     <li class="order-line-item" [class.is-ready]="item.status === 'LISTO'" [class.is-delivered]="item.status === 'ENTREGADO'">
                       <span class="line-product-info">
                         <strong class="line-qty">{{ item.quantity }}x</strong> {{ item.productName }}
+                        @if (item.subItems && item.subItems.length > 0) {
+                          <span style="display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px;">
+                            @for (sub of item.subItems; track sub.name) {
+                              <small style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; font-weight: 700;"
+                                [style.background]="sub.ready ? '#dcfce7' : '#fef3c7'"
+                                [style.color]="sub.ready ? '#15803d' : '#92400e'">
+                                {{ sub.name }} {{ sub.ready ? '✓' : '⋯' }}
+                              </small>
+                            }
+                          </span>
+                        }
                       </span>
                       @if (item.status === 'LISTO') {
                         <button
@@ -1293,6 +1304,17 @@ interface DeliveredTableGroup {
                         >
                           <i class="bi bi-clock-history" aria-hidden="true"></i> En preparación
                         </span>
+                      }
+                      @if (item.subItems && item.subItems.length > 0) {
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; width: 100%;">
+                          @for (sub of item.subItems; track sub.name) {
+                            <span style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; font-weight: 700;"
+                              [style.background]="sub.ready ? '#dcfce7' : '#fef3c7'"
+                              [style.color]="sub.ready ? '#15803d' : '#92400e'">
+                              {{ sub.name }} {{ sub.ready ? '✓' : '⋯' }}
+                            </span>
+                          }
+                        </div>
                       }
                       @if (item.paid) {
                         <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 1rem; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -5488,15 +5510,6 @@ export class OrdersPageComponent {
   deliverItem(event: Event, orderId: string, itemId: string): void {
     event.stopPropagation();
     this.state.markItemDelivered(orderId, itemId);
-  }
-
-  markItemReadyInOrders(event: Event, orderId: string, itemId: string): void {
-    event.stopPropagation();
-    this.state.markItemReady(orderId, itemId, 'ALL');
-  }
-
-  markAllReadyInOrders(orderId: string): void {
-    this.state.markOrderReady(orderId, 'ALL');
   }
 
   selectedOrderTotalFor(order: Order): number {

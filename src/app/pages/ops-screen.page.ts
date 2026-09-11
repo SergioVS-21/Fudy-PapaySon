@@ -2003,15 +2003,22 @@ export class OpsScreenPageComponent {
       return true;
     }
     const targetArea = area ?? this.selectedArea();
+    const hasSubs = !!(item.subItems && item.subItems.length > 0);
+
     if (targetArea === 'ALL') {
+      if (hasSubs) {
+        return item.subItems!.every((sub) => sub.ready);
+      }
       return false;
     }
 
-    const hasSubs = !!(item.subItems && item.subItems.length > 0);
     if (hasSubs) {
       const subsInArea = item.subItems!.filter((sub) => sub.area === targetArea);
       if (subsInArea.length > 0) {
         return subsInArea.every((sub) => sub.ready);
+      }
+      if (item.area === targetArea) {
+        return !!item.mainReady;
       }
       return true;
     }
@@ -2048,7 +2055,13 @@ export class OpsScreenPageComponent {
         const hasSubs = !!(item.subItems && item.subItems.length > 0);
         if (hasSubs) {
           const subsInArea = item.subItems!.filter((s) => s.area === targetArea);
-          return subsInArea.some((s) => !s.ready);
+          if (subsInArea.length > 0) {
+            return subsInArea.some((s) => !s.ready);
+          }
+          if (item.area === targetArea) {
+            return !item.mainReady;
+          }
+          return false;
         }
         return item.area === targetArea && item.status !== 'LISTO';
       });
